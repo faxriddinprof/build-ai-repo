@@ -1,0 +1,26 @@
+[
+  {
+    "id": "objection_expensive",
+    "name": "Objection — Too Expensive",
+    "audio": "objection_expensive.wav",
+    "language": "uz"
+  },
+  {
+    "id": "cross_sell_cashback",
+    "name": "Cross-sell Opportunity",
+    "audio": "cross_sell_cashback.wav",
+    "language": "uz"
+  },
+  {
+    "id": "compliance_apr_miss",
+    "name": "Compliance Miss",
+    "audio": "compliance_apr_miss.wav",
+    "language": "uz"
+  },
+  {
+    "id": "intake_extraction",
+    "name": "Customer Intake",
+    "audio": "intake_extraction.wav",
+    "language": "uz"
+  }
+]
