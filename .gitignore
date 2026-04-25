@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Env
+.env
+*.env.local
+
+# Uploads (volume mounted)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Demo audio (large WAVs)
+backend/demo/audio/*
+!backend/demo/audio/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Node (frontend)
+node_modules/
+frontend/dist/
+frontend/.env
+
+# Alembic pycache
+backend/alembic/versions/__pycache__/

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "interest_rate_disclosure",
+    "label": "Foiz stavkasi",
+    "patterns": ["foiz stavka", "yillik foiz", "APR", "annual percentage rate"]
+  },
+  {
+    "id": "data_consent",
+    "label": "Ma'lumot roziligi",
+    "patterns": ["shaxsiy ma'lumot", "rozilik", "согласие", "персональные данные"]
+  },
+  {
+    "id": "loan_term_disclosure",
+    "label": "Kredit muddati",
+    "patterns": ["kredit muddati", "necha oy", "срок кредита", "месяцев"]
+  }
+]
