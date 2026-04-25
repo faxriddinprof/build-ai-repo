@@ -3,6 +3,8 @@ import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 import litellm
 
@@ -11,6 +13,7 @@ litellm.suppress_debug_info = True
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.logging_config import RequestIdMiddleware, setup_logging
+from app.middleware.rate_limit import limiter, _rate_limit_exceeded_handler
 from app.routers import auth, admin_users, calls
 from app.routers.signaling_ws import router as signaling_ws_router
 from app.routers.supervisor_ws import router as supervisor_ws_router
@@ -79,6 +82,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -87,6 +93,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
@@ -99,6 +106,7 @@ app.include_router(transcribe_router, prefix="/api", tags=["transcribe"])
 
 
 @app.get("/healthz")
+@limiter.exempt
 async def healthz():
     db_ok = False
     try:
