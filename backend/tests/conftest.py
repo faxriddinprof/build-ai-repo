@@ -59,7 +59,7 @@ async def client():
 async def admin_user():
     async with TestSessionLocal() as db:
         user = User(
-            email="admin_test@bank.local",
+            email="admin_test@example.com",
             password_hash=hash_password("adminpass"),
             role="admin",
         )
@@ -75,7 +75,7 @@ async def admin_user():
 async def agent_user():
     async with TestSessionLocal() as db:
         user = User(
-            email="agent_test@bank.local",
+            email="agent_test@example.com",
             password_hash=hash_password("agentpass"),
             role="agent",
         )

@@ -1,4 +1,5 @@
 import contextvars
+import logging
 import uuid
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -30,14 +31,13 @@ def setup_logging(log_level: str = "INFO") -> None:
             _scrub_pii,
             _add_request_id,
             structlog.stdlib.add_log_level,
-            structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
-            structlog.stdlib._NAME_TO_LEVEL.get(log_level.upper(), 20)
+            getattr(logging, log_level.upper(), logging.INFO)
         ),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),

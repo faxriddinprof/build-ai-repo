@@ -9,8 +9,10 @@ litellm==1.48.7
 pymupdf==1.24.10
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 pydantic-settings==2.5.2
-pydantic==2.9.2
+pydantic[email]==2.9.2
+email-validator==2.2.0
 structlog==24.4.0
 rapidfuzz==3.10.0
 tiktoken==0.7.0

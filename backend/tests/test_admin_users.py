@@ -5,12 +5,12 @@ import pytest
 async def test_admin_can_create_user(client, admin_token):
     resp = await client.post(
         "/api/admin/users",
-        json={"email": "newagent@bank.local", "password": "pass123", "role": "agent"},
+        json={"email": "newagent@example.com", "password": "pass123", "role": "agent"},
         headers={"authorization": f"Bearer {admin_token}"},
     )
     assert resp.status_code == 201
     data = resp.json()
-    assert data["email"] == "newagent@bank.local"
+    assert data["email"] == "newagent@example.com"
     assert data["role"] == "agent"
     assert data["is_active"] is True
 
@@ -29,7 +29,7 @@ async def test_duplicate_email_returns_409(client, admin_token, admin_user):
 async def test_agent_cannot_create_user(client, agent_token):
     resp = await client.post(
         "/api/admin/users",
-        json={"email": "x@bank.local", "password": "y", "role": "agent"},
+        json={"email": "x@example.com", "password": "y", "role": "agent"},
         headers={"authorization": f"Bearer {agent_token}"},
     )
     assert resp.status_code == 403

@@ -1,5 +1,5 @@
 import re
-from typing import AsyncIterator, Union
+from typing import AsyncIterator, Optional, Union
 
 import structlog
 from litellm import acompletion
@@ -9,19 +9,30 @@ from app.prompts.system_uz import SYSTEM_PROMPT, SUGGESTION_TEMPLATE
 
 log = structlog.get_logger()
 
-_UZ_CHARS = re.compile(r"[a-zA-ZʻʼO'o'g'G'qQXx]")  # Uzbek latin uses these
+_UZ_WORDS = {
+    "va", "bu", "bir", "emas", "bilan", "uchun", "ham", "lekin", "yoki",
+    "foiz", "kredit", "karta", "omonat", "stavka", "muddat", "balans",
+    "yillik", "oylik", "qarz", "tolov", "bank", "mijoz", "agent",
+    "hisobvaraq", "valyuta", "depozit", "ipoteka", "overdraft",
+    "taklif", "javob", "qiymat", "narx", "chegirma", "ruxsat",
+}
+_UZ_SPECIFIC_CHARS = re.compile(r"[ʻʼO'o'g'G'ʻʼ]|sh|ch|ng", re.IGNORECASE)
 
 
 def _looks_uzbek(text: str) -> bool:
-    """Heuristic: text contains Uzbek-specific chars or common Uzbek words."""
-    uz_words = {"va", "bu", "bir", "emas", "bilan", "uchun", "ham", "lekin", "yoki"}
+    """Heuristic: text contains known Uzbek words or Uzbek-specific char patterns."""
     words = set(text.lower().split())
-    if words & uz_words:
+    if words & _UZ_WORDS:
         return True
-    # Fallback: not purely Cyrillic (Russian) or English
-    cyrillic = sum(1 for c in text if "Ѐ" <= c <= "ӿ")
-    latin = sum(1 for c in text if c.isascii() and c.isalpha())
-    return cyrillic == 0 or (latin > cyrillic)
+    if _UZ_SPECIFIC_CHARS.search(text):
+        return True
+    # Check for Cyrillic (Russian) — if present and no Uzbek markers, not Uzbek
+    cyrillic_count = sum(1 for c in text if "Ѐ" <= c <= "ӿ")
+    if cyrillic_count > 5:
+        return False
+    # Short or numeric-only outputs are ambiguous — treat as non-Uzbek
+    alpha_words = [w for w in words if w.isalpha()]
+    return False  # no Uzbek markers found
 
 
 async def chat(
@@ -29,7 +40,7 @@ async def chat(
     messages: list[dict],
     max_tokens: int,
     temperature: float = 0.3,
-    timeout: float | None = None,
+    timeout: Optional[float] = None,
     stream: bool = False,
 ) -> Union[str, AsyncIterator[str]]:
     timeout = timeout or float(settings.LLM_TIMEOUT_SECONDS)
