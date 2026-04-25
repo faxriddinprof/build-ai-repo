@@ -1,187 +1,211 @@
-# Qwen3 + LiteLLM Setup Guide
+# Qwen3 + LiteLLM Setup Guide (Windows + RTX 5070 Ti)
 
-How to pull the Qwen3 model into Ollama and expose it to the app via LiteLLM.
+How to pull the Qwen3 model into Ollama and expose it to the app via LiteLLM on Windows.
 
 ---
 
 ## Overview
 
 ```
-FastAPI app
+FastAPI app  (Docker container, GPU passthrough)
     │  acompletion(model="ollama/qwen3:8b-q4_K_M",
     │              api_base="http://litellm:4000")
     ▼
-LiteLLM proxy  :4000
-    │  routes by model_name from litellm_config.yaml
+LiteLLM proxy  :4000  (Docker container)
+    │  routes by model_name → litellm_config.yaml
     ▼
-Ollama  :11434
-    │  serves model locally
+Ollama  :11434  (Docker container, GPU passthrough)
+    │  serves model from WSL2 GPU
     ▼
 qwen3:8b-q4_K_M  (~5 GB VRAM, Q4_K_M quantized)
+nomic-embed-text (~0.3 GB VRAM, 768-dim embeddings)
 ```
 
-LiteLLM acts as a unified OpenAI-compatible gateway. The app never talks directly to Ollama.
+On Windows, Docker Desktop uses WSL2 as the backend. GPU passthrough to containers
+works via the NVIDIA CUDA on WSL2 driver — no extra toolkit install needed.
 
 ---
 
 ## 1. Prerequisites
 
-| Requirement | Minimum |
-|-------------|---------|
-| GPU | NVIDIA with ≥6 GB VRAM (RTX 3060 or better) |
-| VRAM budget | Qwen3 8B Q4_K_M ≈ 5 GB + whisper large-v3 ≈ 2 GB = 7 GB total |
-| CUDA | 11.8+ (check: `nvidia-smi`) |
-| Docker | 24+ with nvidia-container-toolkit |
-| Ollama | CLI or Docker image |
-| Disk | ≈6 GB free for model weights |
+| Requirement | Version / Notes |
+|-------------|-----------------|
+| Windows | 10 21H2+ or Windows 11 |
+| NVIDIA Driver | **531.14+** (Game Ready or Studio) — installs CUDA WSL2 support automatically |
+| VRAM | RTX 5070 Ti = 16 GB — budget: Qwen3 ~5 GB + Whisper ~2 GB = **7 GB used** |
+| Docker Desktop | **4.26+** with WSL2 backend enabled |
+| WSL2 | Installed and set as default (`wsl --set-default-version 2`) |
+| Ollama | Windows native installer **or** Docker container (see §2) |
+| Disk | ≈6 GB for model weights (stored in Docker volume `ollama_data`) |
+| PowerShell | 7+ recommended (`winget install Microsoft.PowerShell`) |
 
-Install nvidia-container-toolkit if not present:
-```bash
-# Ubuntu / Debian
-distribution=$(. /etc/os-release && echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo systemctl restart docker
+### Verify GPU is visible to Docker
+
+Open PowerShell and run:
+
+```powershell
+# Check driver
+nvidia-smi
+# Should show RTX 5070 Ti, driver version, CUDA version
+
+# Check Docker can see GPU
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+# Should print the same GPU table inside the container
 ```
+
+If `docker run --gpus all` fails, open Docker Desktop → Settings → Resources → WSL Integration
+and enable it for your WSL2 distro. Restart Docker Desktop.
 
 ---
 
 ## 2. Pull the Qwen3 Model
 
-### Option A — Ollama CLI (host machine)
+### Option A — Ollama Windows App (recommended)
 
-```bash
+Download and install Ollama from `https://ollama.com/download/windows`
+
+After install, Ollama runs as a background service. Open PowerShell:
+
+```powershell
 ollama pull qwen3:8b-q4_K_M
-ollama pull nomic-embed-text        # also needed for RAG embeddings
+ollama pull nomic-embed-text
 ```
 
 Verify:
-```bash
+```powershell
 ollama list
 # NAME                     ID              SIZE    MODIFIED
 # qwen3:8b-q4_K_M         ...             4.9 GB  ...
 # nomic-embed-text         ...             274 MB  ...
 ```
 
-### Option B — via Docker Compose (automatic)
+When using Option A, the `ollama` service in `docker-compose.yml` is **not needed** —
+change `api_base` in `litellm_config.yaml` to point to the host:
 
-The `ollama` service in `docker-compose.yml` mounts a volume so pulled models persist across container restarts. Pull inside the running container:
+```yaml
+api_base: http://host.docker.internal:11434
+```
 
-```bash
+### Option B — Ollama inside Docker (no host install)
+
+This uses the ollama container with GPU passthrough (already configured in `docker-compose.yml`):
+
+```powershell
 docker compose up ollama -d
+
+# Wait ~30s for container to start, then pull models inside it:
 docker compose exec ollama ollama pull qwen3:8b-q4_K_M
 docker compose exec ollama ollama pull nomic-embed-text
 ```
 
-Check the Ollama API is alive:
-```bash
-curl http://localhost:11434/api/tags
+Models persist in the `ollama_data` Docker volume across restarts.
+
+Verify Ollama API:
+```powershell
+curl.exe http://localhost:11434/api/tags
 # → {"models":[{"name":"qwen3:8b-q4_K_M", ...}]}
 ```
+
+> **Note:** Use `curl.exe` not `curl` in PowerShell — `curl` is an alias for
+> `Invoke-WebRequest` which has a different interface.
 
 ---
 
 ## 3. LiteLLM Configuration
 
-File: `litellm_config.yaml` (repo root, mounted into the litellm container)
+File: `litellm_config.yaml` (repo root, read-only mounted into the litellm container)
 
 ```yaml
 model_list:
   - model_name: ollama/qwen3:8b-q4_K_M
     litellm_params:
       model: ollama/qwen3:8b-q4_K_M
-      api_base: http://ollama:11434   # container DNS name
+      api_base: http://ollama:11434          # Option B: ollama in Docker
+      # api_base: http://host.docker.internal:11434  # Option A: ollama on host
 
   - model_name: ollama/nomic-embed-text
     litellm_params:
       model: ollama/nomic-embed-text
-      api_base: http://ollama:11434
+      api_base: http://ollama:11434          # same as above
 
 general_settings:
-  master_key: "sk-litellm-local"    # used as LITELLM_API_KEY in .env
-  request_timeout: 120              # seconds; Qwen3 first-token can be slow cold
+  master_key: "sk-litellm-local"
+  request_timeout: 120
 ```
 
-`model_name` is the identifier callers use. `litellm_params.model` is what LiteLLM sends to Ollama. They must match exactly — including the `ollama/` prefix.
-
 Start LiteLLM:
-```bash
+```powershell
 docker compose up litellm -d
 ```
 
 Verify:
-```bash
-curl http://localhost:4000/health
+```powershell
+curl.exe http://localhost:4000/health
 # → {"status":"healthy"}
 
-curl http://localhost:4000/v1/models \
-  -H "Authorization: Bearer sk-litellm-local"
-# → lists ollama/qwen3:8b-q4_K_M and ollama/nomic-embed-text
+curl.exe -H "Authorization: Bearer sk-litellm-local" http://localhost:4000/v1/models
 ```
 
 ---
 
 ## 4. App Configuration
 
-In `.env` (copy from `.env.example` and fill in):
+Copy `.env.example` to `.env` in the repo root:
+```powershell
+Copy-Item .env.example .env
+```
 
+Minimum settings to edit in `.env`:
 ```env
-# LiteLLM proxy — app talks to this, not directly to Ollama
-LITELLM_BASE_URL=http://litellm:4000   # inside Docker Compose network
-# LITELLM_BASE_URL=http://localhost:4000  # if running app outside Docker
+JWT_SECRET=your-strong-random-secret-here
+
+# LiteLLM proxy — containers talk over Docker internal network
+LITELLM_BASE_URL=http://litellm:4000
 
 LLM_MODEL=ollama/qwen3:8b-q4_K_M
 EMBEDDING_MODEL=ollama/nomic-embed-text
 EMBEDDING_DIM=768
-
-LLM_MAX_TOKENS_SUGGESTION=100
-LLM_MAX_TOKENS_EXTRACTION=200
-LLM_MAX_TOKENS_SUMMARY=400
 LLM_TIMEOUT_SECONDS=5
 ```
 
-`LLM_MODEL` must match the `model_name` in `litellm_config.yaml` exactly.
-
 ---
 
-## 5. How the App Calls LiteLLM
+## 5. Smoke Test (PowerShell)
 
-All LLM calls go through `app/services/llm_service.py` using the `litellm` Python library (not raw HTTP):
+```powershell
+# 1. Start infra
+docker compose up postgres ollama litellm -d
 
-```python
-from litellm import acompletion
+# 2. Wait for healthy status (~30s)
+docker compose ps
 
-resp = await acompletion(
-    model=settings.LLM_MODEL,          # "ollama/qwen3:8b-q4_K_M"
-    messages=[...],
-    max_tokens=settings.LLM_MAX_TOKENS_SUGGESTION,
-    temperature=0.3,
-    stream=True,
-    api_base=settings.LITELLM_BASE_URL, # "http://litellm:4000"
-    timeout=float(settings.LLM_TIMEOUT_SECONDS),
-)
-```
+# 3. LiteLLM health
+curl.exe http://localhost:4000/health
 
-Embeddings go through `app/services/rag_service.py`:
+# 4. Test Qwen3 chat completion
+$body = '{"model":"ollama/qwen3:8b-q4_K_M","messages":[{"role":"user","content":"Salom!"}],"max_tokens":30}'
+curl.exe -X POST http://localhost:4000/v1/chat/completions `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer sk-litellm-local" `
+  -d $body
 
-```python
-from litellm import aembedding
+# 5. Test embedding (check vector length = 768)
+$emb = '{"model":"ollama/nomic-embed-text","input":["kredit foizi"]}'
+curl.exe -X POST http://localhost:4000/v1/embeddings `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer sk-litellm-local" `
+  -d $emb
 
-resp = await aembedding(
-    model=settings.EMBEDDING_MODEL,     # "ollama/nomic-embed-text"
-    input=[text],
-    api_base=settings.LITELLM_BASE_URL,
-)
-vector = resp.data[0]["embedding"]      # list[float], len == 768
+# 6. App health (after starting full stack)
+curl.exe http://localhost:8000/healthz
+# → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
 ```
 
 ---
 
 ## 6. Uzbek Language Enforcement
 
-Qwen3 is multilingual and will default to English or Russian if not constrained. The app enforces Uzbek output at two layers:
+Qwen3 defaults to English or Russian without constraints. The app enforces Uzbek at two layers:
 
 **Layer 1 — System prompt** (`app/prompts/system_uz.py`):
 ```
@@ -189,65 +213,22 @@ Siz O'zbekiston bank muassasasining savdo yordamchisisiz.
 FAQAT O'ZBEK TILIDA javob ber. Boshqa tillarda javob berma.
 ```
 
-**Layer 2 — Post-output assertion** (`llm_service._looks_uzbek()`):
-- Checks for Uzbek vocabulary intersection
-- Checks for Uzbek-specific characters (`ʻ`, `ʼ`, `o'`, `g'`, `sh`, `ch`)
-- Checks Cyrillic ratio (Russian = discard)
-- Non-Uzbek output → one retry with explicit reminder
-- Still non-Uzbek → drop and log warning, emit nothing to client
-
-To tune language detection for your deployment, edit `_UZ_WORDS` set in `llm_service.py`.
+**Layer 2 — `_looks_uzbek()` post-check** (`services/llm_service.py`):
+- Word-set overlap with known Uzbek bank vocabulary
+- Uzbek-specific characters: `ʻ ʼ o' g' sh ch`
+- Cyrillic ratio check (high Cyrillic = Russian = reject)
+- Non-Uzbek → one retry with explicit reminder → drop on second failure
 
 ---
 
-## 7. Smoke Test
+## 7. Switching Qwen Variant
 
-Full round-trip test (infra must be up):
-
-```bash
-# 1. Start infra
-docker compose up postgres ollama litellm -d
-
-# 2. Wait ~10 s for LiteLLM to load, then:
-curl -s http://localhost:4000/health
-
-# 3. Test Qwen3 completion directly via LiteLLM
-curl -s http://localhost:4000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sk-litellm-local" \
-  -d '{
-    "model": "ollama/qwen3:8b-q4_K_M",
-    "messages": [{"role":"user","content":"Salom, qanday yordam bera olaman?"}],
-    "max_tokens": 50
-  }' | python3 -m json.tool
-
-# 4. Test embedding directly via LiteLLM
-curl -s http://localhost:4000/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sk-litellm-local" \
-  -d '{
-    "model": "ollama/nomic-embed-text",
-    "input": ["kredit foizi"]
-  }' | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d['data'][0]['embedding']))"
-# → 768
-
-# 5. App warm-up verification (app must be running)
-curl http://localhost:8000/healthz
-# → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
-```
-
----
-
-## 8. Switching to a Different Qwen Variant
-
-To use a different quantization or size, update three places:
-
-**Step 1** — Pull the new model:
-```bash
+```powershell
+# Pull new variant
 docker compose exec ollama ollama pull qwen3:14b-q4_K_M
 ```
 
-**Step 2** — Add to `litellm_config.yaml`:
+Update `litellm_config.yaml`:
 ```yaml
   - model_name: ollama/qwen3:14b-q4_K_M
     litellm_params:
@@ -255,51 +236,59 @@ docker compose exec ollama ollama pull qwen3:14b-q4_K_M
       api_base: http://ollama:11434
 ```
 
-**Step 3** — Update `.env`:
+Update `.env`:
 ```env
 LLM_MODEL=ollama/qwen3:14b-q4_K_M
 ```
 
-Restart LiteLLM and the API container:
-```bash
+```powershell
 docker compose restart litellm api
 ```
 
-VRAM estimate for common variants:
+VRAM budget on RTX 5070 Ti (16 GB):
 
-| Model | Quantization | VRAM |
-|-------|-------------|------|
-| qwen3:8b-q4_K_M | 4-bit | ~5 GB |
-| qwen3:8b-q8_0 | 8-bit | ~9 GB |
-| qwen3:14b-q4_K_M | 4-bit | ~9 GB |
-| qwen3:32b-q4_K_M | 4-bit | ~20 GB |
-
-RTX 5070 Ti has 16 GB — safe budget with whisper is `qwen3:8b` or `qwen3:14b` q4.
+| Model | Quant | VRAM | Fits with Whisper? |
+|-------|-------|------|--------------------|
+| qwen3:8b-q4_K_M | 4-bit | ~5 GB | Yes (7 GB total) |
+| qwen3:8b-q8_0 | 8-bit | ~9 GB | Tight (11 GB total) |
+| qwen3:14b-q4_K_M | 4-bit | ~9 GB | Tight (11 GB total) |
+| qwen3:32b-q4_K_M | 4-bit | ~20 GB | No — exceeds 16 GB |
 
 ---
 
-## 9. Troubleshooting
+## 8. Troubleshooting (Windows)
 
-**LiteLLM returns 404 for model**
-```
+**`docker: Error response from daemon: could not select device driver "nvidia"`**
+→ Docker Desktop WSL2 integration not enabled. Go to Docker Desktop → Settings →
+Resources → WSL Integration → enable for your distro → restart Docker Desktop.
+
+**`curl` shows Invoke-WebRequest syntax error**
+→ Use `curl.exe` explicitly in PowerShell to call the real curl binary, not the PS alias.
+
+**LiteLLM 404 for model**
+```json
 {"error": {"message": "No model found for ollama/qwen3:8b-q4_K_M"}}
 ```
-→ `model_name` in config doesn't match what the app sends. Both must be `ollama/qwen3:8b-q4_K_M`.
+→ `model_name` in `litellm_config.yaml` must exactly match `LLM_MODEL` in `.env`.
 
-**Ollama returns model not found**
-```
+**Ollama model not found inside container**
+```json
 {"error": "model 'qwen3:8b-q4_K_M' not found"}
 ```
-→ Model not pulled yet. Run `ollama pull qwen3:8b-q4_K_M` inside the ollama container.
+→ Pull was done on host Ollama but container Ollama has its own storage.
+Use Option A (`host.docker.internal`) or re-pull inside the container (Option B).
 
-**Timeout on first request after startup**
-→ Expected on cold start. The app's lifespan warmup (`llm_service.warmup()`) sends a dummy request at boot to load weights into GPU. Set `LLM_TIMEOUT_SECONDS=30` during first boot if needed.
+**First request times out**
+→ Cold-start is expected. The app warmup fires a dummy request at boot.
+Set `LLM_TIMEOUT_SECONDS=30` in `.env` during first boot, revert to `5` after.
 
-**Out of memory (CUDA OOM)**
-→ whisper + Qwen3 exceed GPU budget. Options:
-  - Use `qwen3:8b-q4_K_M` (not q8 or larger)
-  - Set `WHISPER_COMPUTE_TYPE=int8` in `.env` to reduce whisper footprint
-  - Use `WHISPER_MODEL=medium` (saves ~1 GB, small accuracy trade-off)
+**CUDA OOM during startup**
+→ Whisper (2 GB) + Qwen3 (5 GB) = 7 GB. If other apps hold VRAM (e.g. GeForce Experience),
+close them. Or reduce whisper: set `WHISPER_COMPUTE_TYPE=int8` in `.env`.
 
-**Response not in Uzbek**
-→ Check system prompt is loading (`app/prompts/system_uz.py`). Increase `temperature` from 0.3 to 0.1 for more deterministic output. Extend `_UZ_WORDS` set if domain vocabulary is missing.
+**Line-ending issues with `.env` or YAML files**
+→ If edited in Notepad, files may have CRLF endings. Use VS Code or run:
+```powershell
+(Get-Content .env) | Set-Content .env   # re-saves with LF on modern PS
+```
+Or configure Git: `git config core.autocrlf input`

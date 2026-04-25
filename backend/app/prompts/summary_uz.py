@@ -1,19 +1,17 @@
 SUMMARY_PROMPT = """\
-Sen bank kol-markaz qo'ng'iroqlarini xulosalovchi assistantsan.
-Quyidagi suhbatni o'qing va JSON qaytaring:
+You are an assistant that summarizes bank call center conversations.
+Read the conversation below and return ONLY valid JSON. No extra text.
 
-{
+{{
   "outcome": "approved" | "rejected" | "follow_up" | "no_decision",
-  "objections": [<qisqa matn ro'yxati>],
+  "objections": ["<short text>", ...],
   "compliance_status": "complete" | "partial" | "failed",
-  "next_action": "<bir jumla, agentning keyingi qadami>"
-}
+  "next_action": "<one sentence describing the agent's next step, written in Uzbek>"
+}}
 
-Faqat JSON qaytaring.
-
-Suhbat:
+Conversation:
 {transcript}
 
-Compliance holati:
+Compliance status:
 {compliance_summary}
 """

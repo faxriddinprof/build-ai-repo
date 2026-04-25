@@ -1,16 +1,14 @@
 EXTRACTION_PROMPT = """\
-Sen bank operatorining suhbatidan mijoz ma'lumotlarini ajratuvchi assistantsan.
-Quyidagi suhbatdan FAQAT JSON formatda javob qaytar:
+You are an assistant that extracts customer information from a bank operator conversation.
+Return ONLY valid JSON in the format below. No extra text, no explanation.
 
 {{
-  "customer_name": "<to'liq ism, agar aniqlanmagan bo'lsa null>",
-  "customer_passport": "<passport raqami formatda AA1234567, agar aniqlanmagan null>",
-  "customer_region": "<viloyat yoki shahar nomi, agar aniqlanmagan null>",
-  "confidence": <0.0-1.0>
+  "customer_name": "<full name, or null if not found>",
+  "customer_passport": "<passport number in format AA1234567, or null if not found>",
+  "customer_region": "<province or city name, or null if not found>",
+  "confidence": <float 0.0-1.0>
 }}
 
-Boshqa hech narsa yozma. Faqat JSON.
-
-Suhbat:
+Conversation:
 {transcript}
 """
