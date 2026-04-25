@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SQB AI Sales Copilot</title>
+
+<!-- Geist + Geist Mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;550;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="tokens.css"/>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Tweaks panel -->
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<!-- Components -->
+<script type="text/babel" src="components/icons.jsx"></script>
+<script type="text/babel" src="components/primitives.jsx"></script>
+<script type="text/babel" src="components/call-button.jsx"></script>
+<script type="text/babel" src="components/dashboard-parts.jsx"></script>
+<script type="text/babel" src="components/queue-rail.jsx"></script>
+
+<!-- Data -->
+<script type="text/babel" src="data/demo-timeline.jsx"></script>
+
+<!-- Screens -->
+<script type="text/babel" src="screens/login.jsx"></script>
+<script type="text/babel" src="screens/customer-call.jsx"></script>
+<script type="text/babel" src="screens/incoming-call.jsx"></script>
+<script type="text/babel" src="screens/agent-dashboard.jsx"></script>
+<script type="text/babel" src="screens/supervisor.jsx"></script>
+<script type="text/babel" src="screens/post-call-summary.jsx"></script>
+
+<!-- App -->
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
