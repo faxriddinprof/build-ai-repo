@@ -1,0 +1,19 @@
+# GPU override — use on the Windows RTX 5070 Ti server:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+#
+# Requirements: Docker Desktop ≥4.25 with WSL2 + NVIDIA driver ≥531.14
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  api:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]

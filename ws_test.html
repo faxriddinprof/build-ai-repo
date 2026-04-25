@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Sales Copilot — WebSocket Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0f0f0f; color: #e0e0e0; padding: 16px; }
+    h1 { font-size: 1rem; color: #7aa2f7; margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+    input, select { background: #1a1a2e; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px;
+                    font-family: monospace; font-size: 0.85rem; border-radius: 4px; }
+    input[type=text] { flex: 1; min-width: 200px; }
+    button { background: #364fc7; color: #fff; border: none; padding: 6px 14px; border-radius: 4px;
+             cursor: pointer; font-family: monospace; font-size: 0.85rem; white-space: nowrap; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.danger { background: #c0392b; }
+    button.green { background: #27ae60; }
+    #log { background: #111; border: 1px solid #222; border-radius: 4px; padding: 10px;
+           height: 420px; overflow-y: auto; font-size: 0.8rem; line-height: 1.6; margin-top: 8px; }
+    .msg { padding: 2px 0; border-bottom: 1px solid #1a1a1a; }
+    .ts  { color: #555; }
+    .dir-out { color: #f0a500; }
+    .dir-in  { color: #7aa2f7; }
+    .ev-transcript  { color: #b5e48c; }
+    .ev-suggestion  { color: #f7b731; font-weight: bold; }
+    .ev-sentiment   { color: #a29bfe; }
+    .ev-compliance  { color: #fd9644; }
+    .ev-intake      { color: #55efc4; }
+    .ev-summary     { color: #74b9ff; }
+    .ev-error       { color: #ff6b6b; }
+    .ev-status      { color: #636e72; }
+    .section { margin-top: 14px; padding-top: 10px; border-top: 1px solid #222; }
+    label { font-size: 0.8rem; color: #888; margin-right: 4px; }
+    #status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+                  background: #c0392b; margin-right: 6px; vertical-align: middle; }
+    #status-dot.connected { background: #27ae60; }
+    #audioBars { display: flex; align-items: flex-end; gap: 2px; height: 30px; margin-top: 4px; }
+    #audioBars span { width: 4px; background: #364fc7; border-radius: 2px 2px 0 0;
+                      transition: height 0.05s; display: inline-block; }
+  </style>
+</head>
+<body>
+
+<h1>🎙 AI Sales Copilot — WebSocket Test</h1>
+
+<!-- AUTH -->
+<div class="section">
+  <div class="row">
+    <label>API Base:</label>
+    <input type="text" id="apiBase" value="http://localhost:8000">
+    <label>Email:</label>
+    <input type="text" id="email" value="admin@bank.local" style="flex:0;width:160px">
+    <label>Password:</label>
+    <input type="text" id="password" value="changeme" style="flex:0;width:120px">
+    <button onclick="login()">Login →</button>
+  </div>
+  <div class="row">
+    <label>Token:</label>
+    <input type="text" id="token" placeholder="paste JWT or click Login →">
+    <label>Role:</label>
+    <select id="wsRole">
+      <option value="audio">agent  (/ws/audio)</option>
+      <option value="supervisor">supervisor (/ws/supervisor)</option>
+    </select>
+    <button id="btnConnect" class="green" onclick="connect()">Connect WS</button>
+    <button id="btnDisconnect" class="danger" onclick="disconnect()" disabled>Disconnect</button>
+  </div>
+  <div class="row">
+    <span id="status-dot"></span><span id="statusText" style="font-size:0.8rem">Disconnected</span>
+  </div>
+</div>
+
+<!-- CONTROLS -->
+<div class="section" id="agentControls">
+  <div class="row">
+    <button id="btnStartCall" onclick="startCall()" disabled>start_call</button>
+    <button id="btnEndCall" onclick="endCall()" disabled>end_call</button>
+    <button id="btnTriggerExtract" onclick="triggerExtract()" disabled>trigger_intake_extraction</button>
+  </div>
+
+  <!-- MIC -->
+  <div class="row" style="margin-top:8px">
+    <button id="btnMic" onclick="toggleMic()" disabled>🎤 Start mic stream</button>
+    <label>Sample rate:</label>
+    <select id="sampleRate">
+      <option value="16000" selected>16000 Hz</option>
+      <option value="44100">44100 Hz</option>
+      <option value="48000">48000 Hz</option>
+    </select>
+    <label style="margin-left:8px">Chunk ms:</label>
+    <select id="chunkMs">
+      <option value="100" selected>100 ms</option>
+      <option value="250">250 ms</option>
+      <option value="500">500 ms</option>
+    </select>
+  </div>
+  <div id="audioBars">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <!-- Manual text send -->
+  <div class="row" style="margin-top:8px">
+    <label>Raw JSON:</label>
+    <input type="text" id="rawJson" placeholder='{"type":"audio_chunk","pcm_b64":"...","sample_rate":16000}'>
+    <button onclick="sendRaw()" id="btnSendRaw" disabled>Send</button>
+  </div>
+</div>
+
+<!-- LOG -->
+<div id="log"></div>
+<div class="row" style="margin-top:6px">
+  <button onclick="clearLog()">Clear log</button>
+  <button onclick="healthCheck()">GET /healthz</button>
+  <button onclick="getMe()">GET /me</button>
+</div>
+
+<script>
+  let ws = null;
+  let audioCtx = null, mediaStream = null, processor = null, micActive = false;
+  const bars = document.querySelectorAll('#audioBars span');
+
+  function ts() {
+    return new Date().toLocaleTimeString('en-US', {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:2});
+  }
+
+  function log(cls, dir, text) {
+    const el = document.getElementById('log');
+    const d = document.createElement('div');
+    d.className = `msg ${cls}`;
+    d.innerHTML = `<span class="ts">[${ts()}]</span> <span class="${dir}">${dir==='dir-out'?'→':'←'}</span> ${escHtml(text)}`;
+    el.appendChild(d);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function clearLog() { document.getElementById('log').innerHTML = ''; }
+
+  function setConnected(c) {
+    const dot = document.getElementById('status-dot');
+    dot.className = c ? 'connected' : '';
+    document.getElementById('statusText').textContent = c ? 'Connected' : 'Disconnected';
+    document.getElementById('btnConnect').disabled = c;
+    document.getElementById('btnDisconnect').disabled = !c;
+    document.getElementById('btnStartCall').disabled = !c;
+    document.getElementById('btnEndCall').disabled = !c;
+    document.getElementById('btnTriggerExtract').disabled = !c;
+    document.getElementById('btnMic').disabled = !c;
+    document.getElementById('btnSendRaw').disabled = !c;
+  }
+
+  async function login() {
+    const base = document.getElementById('apiBase').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const pass  = document.getElementById('password').value.trim();
+    try {
+      const r = await fetch(`${base}/api/auth/login`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({email, password: pass})
+      });
+      const j = await r.json();
+      if (j.access_token) {
+        document.getElementById('token').value = j.access_token;
+        log('ev-status', 'dir-in', `Login OK — role: ${j.role}`);
+      } else {
+        log('ev-error', 'dir-in', `Login failed: ${JSON.stringify(j)}`);
+      }
+    } catch(e) { log('ev-error', 'dir-in', `Login error: ${e}`); }
+  }
+
+  function connect() {
+    const base = document.getElementById('apiBase').value.trim().replace(/^http/, 'ws');
+    const token = document.getElementById('token').value.trim();
+    const role  = document.getElementById('wsRole').value;
+    const path  = role === 'supervisor' ? '/ws/supervisor' : '/ws/audio';
+    const url   = `${base}${path}?token=${token}`;
+
+    log('ev-status', 'dir-out', `Connecting to ${url}`);
+    ws = new WebSocket(url);
+
+    ws.onopen = () => { setConnected(true); log('ev-status', 'dir-in', 'WebSocket connected'); };
+
+    ws.onmessage = (e) => {
+      let cls = 'dir-in', evCls = '';
+      try {
+        const msg = JSON.parse(e.data);
+        const t = msg.type || '';
+        evCls = {
+          transcript:       'ev-transcript',
+          suggestion:       'ev-suggestion',
+          sentiment:        'ev-sentiment',
+          compliance_tick:  'ev-compliance',
+          intake_proposal:  'ev-intake',
+          summary_ready:    'ev-summary',
+          error:            'ev-error',
+        }[t] || '';
+        log(evCls, 'dir-in', JSON.stringify(msg));
+      } catch { log('', 'dir-in', e.data); }
+    };
+
+    ws.onerror = (e) => { log('ev-error', 'dir-in', `WS error`); };
+    ws.onclose = (e) => { setConnected(false); log('ev-status', 'dir-in', `WS closed (code ${e.code})`); stopMic(); };
+  }
+
+  function disconnect() { if (ws) ws.close(); }
+
+  function send(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const s = JSON.stringify(obj);
+    ws.send(s);
+    if (obj.type !== 'audio_chunk') log('dir-out', 'dir-out', s);
+  }
+
+  function startCall()      { send({type:'start_call'}); }
+  function endCall()        { send({type:'end_call'}); }
+  function triggerExtract() { send({type:'trigger_intake_extraction'}); }
+
+  function sendRaw() {
+    const v = document.getElementById('rawJson').value.trim();
+    try { send(JSON.parse(v)); } catch(e) { log('ev-error','dir-out',`Invalid JSON: ${e}`); }
+  }
+
+  // ── MIC STREAMING ─────────────────────────────────────────────────────────
+  async function toggleMic() {
+    if (micActive) { stopMic(); return; }
+    try {
+      const sr = parseInt(document.getElementById('sampleRate').value);
+      mediaStream = await navigator.mediaDevices.getUserMedia({audio:{sampleRate:sr,channelCount:1,echoCancellation:true}});
+      audioCtx = new AudioContext({sampleRate: sr});
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+      const chunkMs = parseInt(document.getElementById('chunkMs').value);
+      const bufSize = Math.pow(2, Math.round(Math.log2(sr * chunkMs / 1000)));
+      processor = audioCtx.createScriptProcessor(bufSize, 1, 1);
+
+      processor.onaudioprocess = (ev) => {
+        const float32 = ev.inputBuffer.getChannelData(0);
+        // visualiser
+        const rms = Math.sqrt(float32.reduce((a,v)=>a+v*v,0)/float32.length);
+        bars.forEach((b,i) => {
+          const h = Math.min(30, Math.max(2, rms * 300 * (0.5 + Math.random() * 0.5)));
+          b.style.height = h + 'px';
+        });
+        // PCM int16 → base64
+        const int16 = new Int16Array(float32.length);
+        for (let i=0;i<float32.length;i++) int16[i] = Math.max(-32768, Math.min(32767, float32[i]*32768));
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
+        send({type:'audio_chunk', pcm_b64: b64, sample_rate: sr});
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      micActive = true;
+      document.getElementById('btnMic').textContent = '⏹ Stop mic';
+      log('ev-status', 'dir-out', `Mic started — ${sr} Hz, ${bufSize} samples/chunk`);
+    } catch(e) { log('ev-error','dir-out',`Mic error: ${e}`); }
+  }
+
+  function stopMic() {
+    if (processor) { processor.disconnect(); processor = null; }
+    if (audioCtx)  { audioCtx.close(); audioCtx = null; }
+    if (mediaStream) { mediaStream.getTracks().forEach(t=>t.stop()); mediaStream = null; }
+    micActive = false;
+    bars.forEach(b => b.style.height = '2px');
+    document.getElementById('btnMic').textContent = '🎤 Start mic stream';
+  }
+
+  // ── QUICK REST CHECKS ─────────────────────────────────────────────────────
+  async function healthCheck() {
+    const base = document.getElementById('apiBase').value.trim();
+    try {
+      const r = await fetch(`${base}/healthz`);
+      log('ev-status', 'dir-in', `/healthz → ${await r.text()}`);
+    } catch(e) { log('ev-error','dir-in',`/healthz error: ${e}`); }
+  }
+
+  async function getMe() {
+    const base  = document.getElementById('apiBase').value.trim();
+    const token = document.getElementById('token').value.trim();
+    try {
+      const r = await fetch(`${base}/api/auth/me`, {headers:{'Authorization':`Bearer ${token}`}});
+      log('ev-status', 'dir-in', `/me → ${await r.text()}`);
+    } catch(e) { log('ev-error','dir-in',`/me error: ${e}`); }
+  }
+</script>
+</body>
+</html>

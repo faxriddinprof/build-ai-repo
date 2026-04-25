@@ -1,8 +1,12 @@
+import asyncio
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+import litellm
+
+litellm.suppress_debug_info = True
 
 from app.config import settings
 from app.database import AsyncSessionLocal
@@ -22,20 +26,44 @@ _models_loaded = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _models_loaded
+    import subprocess
+    log.info("startup.migrate_begin")
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"],
+        capture_output=True, text=True, cwd="/app",
+    )
+    if result.returncode == 0:
+        log.info("startup.migrate_done", output=result.stdout.strip())
+    else:
+        log.error("startup.migrate_failed", stderr=result.stderr.strip())
+
     from app.services import stt_service, llm_service
     from app.services.compliance_service import load_phrases
     load_phrases()
     log.info("startup.begin")
-    stt_service.load_model()
-    await stt_service.warmup()
-    await llm_service.warmup()
     try:
-        from app.services.rag_service import embed
-        vec = await embed("salom")
-        assert len(vec) == settings.EMBEDDING_DIM, f"embedding dim mismatch: {len(vec)}"
-        log.info("startup.embed_warmup_done", dim=len(vec))
+        stt_service.load_model()
     except Exception as e:
-        log.warning("startup.embed_warmup_failed", error=str(e))
+        log.warning("startup.stt_load_failed", error=str(e))
+    try:
+        await stt_service.warmup()
+    except Exception as e:
+        log.warning("startup.stt_warmup_failed", error=str(e))
+    try:
+        await llm_service.warmup()
+    except Exception as e:
+        log.warning("startup.llm_warmup_failed", error=str(e))
+    for attempt in range(1, 6):
+        try:
+            from app.services.rag_service import embed
+            vec = await embed("salom")
+            assert len(vec) == settings.EMBEDDING_DIM, f"embedding dim mismatch: {len(vec)}"
+            log.info("startup.embed_warmup_done", dim=len(vec))
+            break
+        except Exception as e:
+            log.warning("startup.embed_warmup_failed", attempt=attempt, error=str(e))
+            if attempt < 5:
+                await asyncio.sleep(5 * attempt)
     try:
         from app.services.bm25_service import load_or_init
         await load_or_init()
@@ -50,7 +78,7 @@ app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,7 +108,7 @@ async def healthz():
     try:
         import httpx
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{settings.LITELLM_BASE_URL}/health")
+            resp = await client.get(f"{settings.LITELLM_BASE_URL}/health/liveliness")
             ollama_ok = resp.status_code == 200
     except Exception:
         pass

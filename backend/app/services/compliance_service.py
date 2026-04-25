@@ -9,7 +9,6 @@ from app.config import settings
 log = structlog.get_logger()
 
 _phrases: list[dict] = []
-_FUZZY_THRESHOLD = 85.0
 
 # Per-call ticked phrase IDs: {call_id: set of phrase_ids}
 _call_state: dict[str, set] = {}
@@ -39,7 +38,7 @@ def _matches(text: str, pattern: str) -> bool:
         return False
     for i in range(len(words) - window + 1):
         chunk = " ".join(words[i:i + window])
-        if fuzz.ratio(chunk, pattern_lower) >= _FUZZY_THRESHOLD:
+        if fuzz.ratio(chunk, pattern_lower) >= settings.COMPLIANCE_FUZZY_THRESHOLD:
             return True
     return False
 

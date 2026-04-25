@@ -50,3 +50,4 @@ frontend/.env
 
 # Alembic pycache
 backend/alembic/versions/__pycache__/
+*.zip

@@ -3,6 +3,8 @@ from typing import Optional
 
 import structlog
 
+from app.config import settings
+
 log = structlog.get_logger()
 
 _POSITIVE = {
@@ -17,7 +19,6 @@ _NEGATIVE = {
 
 # Per-call: {call_id: {"last_llm_call": float, "last_sentiment": str, "turns": list}}
 _call_state: dict[str, dict] = {}
-_LLM_COOLDOWN_SECONDS = 5.0
 
 
 def _keyword_score(turns: list[str]) -> int:
@@ -40,21 +41,21 @@ async def analyze(call_id: str, text: str) -> Optional[dict]:
     })
 
     state["turns"].append(text)
-    if len(state["turns"]) > 3:
-        state["turns"] = state["turns"][-3:]
+    if len(state["turns"]) > settings.SENTIMENT_TURNS_WINDOW:
+        state["turns"] = state["turns"][-settings.SENTIMENT_TURNS_WINDOW:]
 
     score = _keyword_score(state["turns"])
 
-    if score >= 2:
+    if score >= settings.SENTIMENT_SCORE_THRESHOLD:
         sentiment = "positive"
         confidence = 0.9
-    elif score <= -2:
+    elif score <= -settings.SENTIMENT_SCORE_THRESHOLD:
         sentiment = "negative"
         confidence = 0.9
     else:
         # Borderline — try LLM if cooldown passed
         now = time.monotonic()
-        if now - state["last_llm_call"] >= _LLM_COOLDOWN_SECONDS:
+        if now - state["last_llm_call"] >= settings.SENTIMENT_LLM_COOLDOWN_SECONDS:
             state["last_llm_call"] = now
             sentiment, confidence = await _llm_tone(state["turns"])
         else:

@@ -20,6 +20,7 @@ async def embed(text_input: str) -> list[float]:
         model=settings.EMBEDDING_MODEL,
         input=[text_input],
         api_base=settings.LITELLM_BASE_URL,
+        api_key=settings.LITELLM_API_KEY,
         timeout=float(settings.LLM_TIMEOUT_SECONDS),
     )
     return resp.data[0]["embedding"]
@@ -98,8 +99,8 @@ async def search(
     """Hybrid retrieval: dense (BGE-M3 + pgvector) + sparse (BM25s) → RRF → top_k."""
     from app.services import bm25_service
 
-    dense_coro = _dense_search(query, top_k=settings.RAG_DENSE_CANDIDATES, tag_filter=tag_filter, db=db)
-    sparse_coro = bm25_service.search(query, top_k=settings.RAG_SPARSE_CANDIDATES, tag_filter=tag_filter)
+    dense_coro = _dense_search(query, top_k=settings.RAG_DENSE_TOP_K, tag_filter=tag_filter, db=db)
+    sparse_coro = bm25_service.search(query, top_k=settings.RAG_SPARSE_TOP_K, tag_filter=tag_filter)
 
     results = await asyncio.gather(dense_coro, sparse_coro, return_exceptions=True)
 
@@ -111,7 +112,7 @@ async def search(
     if isinstance(results[1], Exception):
         log.warning("rag.sparse_search_failed", error=str(results[1]))
 
-    return _rrf(dense_hits, sparse_hits, k=settings.RRF_K)[:top_k]
+    return _rrf(dense_hits, sparse_hits, k=settings.RRF_K)[:settings.RAG_FINAL_TOP_K]
 
 
 async def build_context(transcript_tail: str, top_k: int = 5) -> str:

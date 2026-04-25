@@ -41,7 +41,7 @@ def _transcribe_sync(audio: np.ndarray, language_hint: Optional[str]) -> Transcr
     if _model is None:
         raise RuntimeError("STT model not loaded — call load_model() at startup")
 
-    kwargs = {"beam_size": 5, "vad_filter": True}
+    kwargs = {"beam_size": settings.WHISPER_BATCH_SIZE_REALTIME, "vad_filter": True}
     if language_hint:
         kwargs["language"] = language_hint
 
@@ -68,11 +68,12 @@ async def transcribe_chunk(
 
 
 async def warmup() -> None:
-    """Send a silent 1-second dummy chunk to warm up the CUDA kernel."""
+    """Send a silent dummy chunk to pre-load the model into memory."""
     import time
 
     silence = np.zeros(16000, dtype=np.float32)
     pcm = (silence * 32768).astype(np.int16).tobytes()
     t0 = time.monotonic()
-    await transcribe_chunk(pcm)
+    # Pass language hint to skip language detection on silent audio (avoids max() on empty seq)
+    await transcribe_chunk(pcm, language_hint="uz")
     log.info("stt.warmup_done", latency_ms=int((time.monotonic() - t0) * 1000))

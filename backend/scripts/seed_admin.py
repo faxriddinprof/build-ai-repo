@@ -1,19 +1,20 @@
 """Create or update the initial admin user. Idempotent — safe to run multiple times."""
 import asyncio
-import os
 import sys
+import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.user import User
 from app.services.auth_service import hash_password
 
 
 async def seed():
-    email = os.environ.get("ADMIN_EMAIL", "admin@bank.local")
-    password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    email = settings.ADMIN_EMAIL
+    password = settings.ADMIN_PASSWORD
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.email == email))

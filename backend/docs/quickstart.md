@@ -34,9 +34,14 @@ make infra
 make models-pull
 ```
 
-`models-pull` downloads:
+`models-pull` downloads into `static/media/models/`:
 - `qwen3:8b-q4_K_M` — LLM inference (~5 GB)
 - `bge-m3` — multilingual embeddings, 1024-dim (~1.2 GB)
+
+Pre-download the whisper model into the api container cache:
+```bash
+make models-whisper   # downloads whisper tiny (~75 MB) for dev/CI
+```
 
 Models are stored in `static/media/models/` (bind-mounted into the ollama container). They survive container rebuilds.
 
@@ -94,7 +99,10 @@ Postgres must be running on `:5432`:
 
 ```bash
 make test
-# 68 passed
+# 68 passed (postgres must be running)
+
+# Pre-download whisper model for tests:
+make models-whisper
 ```
 
 Single file:

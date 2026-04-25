@@ -40,7 +40,7 @@ async def _authenticate(token: str, db: AsyncSession) -> Optional[User]:
         return None
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active or user.role != "agent":
+    if user is None or not user.is_active or user.role not in ("agent", "admin"):
         return None
     return user
 

@@ -25,8 +25,14 @@ infra:          ## Start postgres + ollama + litellm (background)
 api:            ## Start only the API container (foreground)
 	$(COMPOSE) up $(API_SVC)
 
-up:             ## Start full stack — all services (background)
-	$(COMPOSE) up -d
+build:          ## Build/rebuild all containers
+	$(COMPOSE) build
+
+up:             ## Start full stack — all services (background, CPU mode)
+	$(COMPOSE) up --remove-orphans
+
+up-gpu:         ## Start full stack with NVIDIA GPU (Windows RTX server)
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up -d
 
 down:           ## Stop and remove all containers
 	$(COMPOSE) down
@@ -41,9 +47,15 @@ ps:             ## Show container status and health
 env:            ## Copy .env.example → .env (skip if exists)
 	@test -f $(ENV_FILE) && echo ".env already exists, skipping" || cp .env.example $(ENV_FILE)
 
-models-pull:    ## Pull Ollama models into the running ollama container
+models-pull:    ## Pull Ollama models (LLM + embeddings) into ollama container
 	$(COMPOSE) exec ollama ollama pull qwen3:8b-q4_K_M
 	$(COMPOSE) exec ollama ollama pull bge-m3
+
+models-whisper: ## Pre-download whisper tiny model into api container cache
+	$(COMPOSE) exec $(API_SVC) python scripts/download_models.py whisper
+
+convert-stt:    ## Convert Kotib/uzbek_stt_v1 → CTranslate2 format for faster-whisper
+	$(COMPOSE) exec $(API_SVC) python scripts/convert_stt_model.py
 
 migrate:        ## Run Alembic migrations (postgres must be healthy)
 	$(COMPOSE) exec $(API_SVC) alembic upgrade head
