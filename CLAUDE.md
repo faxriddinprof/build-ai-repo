@@ -8,116 +8,169 @@ Real-time AI sales copilot for bank call center agents in Uzbekistan. Listens to
 
 Three roles: `agent`, `supervisor`, `admin`. Single bank instance, JWT auth.
 
+**Current status:** Backend Phases 0–4 complete. 59/59 tests passing. Frontend not started.
+
 ## Architecture
 
 ```
-Browser → WS /ws/audio → FastAPI → faster-whisper (STT)
-                                 → GuardrailService (keyword filter — no LLM if not bank)
-                                 → RAG (pgvector cosine) → Qwen3-8B via LiteLLM → suggestion
-                                 → SentimentService, ComplianceService (keyword + LLM)
-                                 → EventBus → WS /ws/supervisor
+Browser/Agent
+  │  WS /ws/audio?token=<jwt>
+  ▼
+audio_ws.py
+  ├── ChunkBuffer (≥1 s PCM) → stt_service (faster-whisper)
+  ├── compliance_service (rapidfuzz keyword match)
+  ├── sentiment_service (keyword score + LLM tone)
+  ├── extraction_service (LLM → JSON intake, auto at 60 s)
+  ├── guardrail_service (BANK_TOPICS keyword filter)
+  ├── rag_service (nomic-embed → pgvector cosine search)
+  └── llm_service (Qwen3-8B via LiteLLM, streaming)
+        └── event_bus → WS /ws/supervisor?token=<jwt>
 
-Admin → POST /api/admin/documents → IngestService → PyMuPDF → tiktoken chunks → nomic-embed-text → pgvector
+Admin
+  POST /api/admin/documents
+    └── ingest_service (PyMuPDF → chunks → embed → pgvector)
 ```
 
 **Key invariants:**
-- Every transcript chunk hits `GuardrailService.is_bank_related()` before any LLM call. Non-bank → silent drop.
-- All LLM responses must be Uzbek only — enforced by system prompt + post-output language assertion + single retry.
-- `customer_passport` is never included in supervisor WebSocket payloads (server-side scrub) and never serialized in logs.
+- Every transcript chunk hits `guardrail_service.is_bank_related()` before any LLM call. Non-bank → silent drop.
+- All LLM responses must be Uzbek — enforced by system prompt + `_looks_uzbek()` post-check + single retry.
+- `customer_passport` never appears in supervisor WS payloads (`_scrub()`) or logs (`_scrub_pii()`).
 
 ## Stack
 
 | Layer | Tech |
 |-------|------|
-| Backend | FastAPI (Python 3.11), uvicorn `--workers 1` (GPU contention) |
+| Backend | FastAPI (Python 3.11), uvicorn `--workers 1` |
 | ORM | SQLAlchemy 2.x async + Alembic |
 | DB driver | asyncpg |
-| Vector store | PostgreSQL + pgvector extension |
-| STT | faster-whisper large-v3 (CUDA, float16) |
-| LLM | Qwen3-8B Q4_K_M via Ollama, proxied through LiteLLM |
+| Vector store | PostgreSQL 16 + pgvector |
+| STT | faster-whisper large-v3 (CUDA float16) |
+| LLM | Qwen3-8B Q4_K_M via Ollama → LiteLLM proxy |
 | Embeddings | nomic-embed-text (768-dim) via Ollama |
 | PDF | PyMuPDF (fitz) |
-| Auth | python-jose (HS256 JWT), passlib[bcrypt] |
-| Logging | structlog (JSON to stdout) |
-| Frontend | React + TypeScript + Tailwind CSS (Vite) |
+| Auth | python-jose HS256, passlib bcrypt==3.2.2 |
+| Fuzzy match | rapidfuzz (compliance, 0.85 threshold) |
+| Logging | structlog JSON; PII scrubber active |
+| Frontend | React + TypeScript + Tailwind (not started) |
 
 ## Development Commands
 
 ```bash
-# Start infrastructure (postgres+pgvector, ollama, litellm)
-docker compose up postgres ollama litellm
-
-# Start API (after infra is up)
-docker compose up api
+# Start infrastructure
+docker compose up postgres ollama litellm -d
 
 # Full stack
 docker compose up
 
-# Run migrations
+# Migrations
 cd backend && alembic upgrade head
 
-# Seed initial admin user
+# Seed admin
 cd backend && python scripts/seed_admin.py
 
-# Pull required Ollama models (run once)
+# Pull Ollama models (once)
 ollama pull qwen3:8b-q4_K_M
 ollama pull nomic-embed-text
 
-# Backend tests
+# Tests (postgres must be running)
 cd backend && pytest
-
-# Single test
 cd backend && pytest tests/test_auth.py -v
 
-# Health check
+# Health
 curl http://localhost:8000/healthz
+# → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
 ```
 
 ## Backend Structure (`backend/`)
 
 ```
 app/
-├── main.py              # FastAPI entry; startup hooks warm both models
-├── config.py            # Pydantic Settings from env vars (see .env.example)
-├── database.py          # async SQLAlchemy engine + session factory
+├── main.py              # FastAPI entry + lifespan (model warmup, phrase load)
+├── config.py            # Pydantic Settings from .env
+├── database.py          # async engine + session factory
 ├── deps.py              # get_db, get_current_user, require_role(*roles)
-├── logging_config.py    # structlog JSON; PII scrubber strips customer_passport
-├── models/              # SQLAlchemy ORM models
-├── schemas/             # Pydantic request/response + WS message envelopes
-├── routers/             # audio_ws.py, supervisor_ws.py, auth, calls, admin_*
-├── services/            # stt, guardrail, llm, rag, sentiment, compliance,
-│                        # extraction, summary, ingest, auth, event_bus, demo
-├── prompts/             # system_uz.py, extraction_uz.py, summary_uz.py
+├── logging_config.py    # structlog JSON; _scrub_pii strips customer_passport
+├── models/              # user, call, document (+ DocumentChunk), suggestion
+├── schemas/             # auth, user, call, document, ws message envelopes
+├── routers/
+│   ├── auth.py          # /api/auth/login|refresh|me
+│   ├── admin_users.py   # /api/admin/users CRUD
+│   ├── admin_documents.py  # /api/admin/documents CRUD + reindex
+│   ├── calls.py         # /api/calls CRUD + intake PATCH + end POST
+│   ├── demo.py          # /api/demo/scenarios|play
+│   ├── audio_ws.py      # WS /ws/audio (agent stream)
+│   └── supervisor_ws.py # WS /ws/supervisor (fan-out, passport scrubbed)
+├── services/
+│   ├── auth_service.py  # hash_password, verify_password, JWT issue/decode
+│   ├── stt_service.py   # faster-whisper singleton, transcribe_chunk
+│   ├── guardrail_service.py  # is_bank_related (BANK_TOPICS keyword set)
+│   ├── llm_service.py   # chat(), get_suggestion() streaming, _looks_uzbek
+│   ├── rag_service.py   # embed(), search(), build_context()
+│   ├── ingest_service.py  # ingest_pdf() → chunk → embed → pgvector
+│   ├── extraction_service.py  # extract() → confidence-gated intake JSON
+│   ├── summary_service.py     # summarize() → post-call JSON
+│   ├── compliance_service.py  # check_chunk() rapidfuzz, per-call state
+│   ├── sentiment_service.py   # analyze() keyword+LLM, change-only events
+│   ├── event_bus.py     # asyncio.Queue pub/sub for supervisor fan-out
+│   └── demo_service.py  # play_scenario() WAV → 100 ms audio_chunk stream
+├── prompts/
+│   ├── system_uz.py     # SYSTEM_PROMPT + SUGGESTION_TEMPLATE
+│   ├── extraction_uz.py # EXTRACTION_PROMPT (JSON intake)
+│   └── summary_uz.py    # SUMMARY_PROMPT (post-call outcome)
+├── utils/
+│   ├── audio.py         # ChunkBuffer (≥1 s), SpeakerTracker, pcm_to_float32
+│   └── text.py          # (reserved)
 └── data/
-    └── compliance_phrases.json   # required phrase patterns for compliance checks
+    └── compliance_phrases.json  # 3 placeholder phrases (UZ + RU + EN)
 demo/
 ├── scenarios.json        # 4 hackathon demo scenarios
-└── audio/                # bundled WAV files (gitignored if large)
-uploads/                  # volume-mounted user PDFs (gitignored)
-tests/
-alembic/versions/
+└── audio/                # WAV files (not committed — acquire separately)
+uploads/                  # volume-mounted PDFs (gitignored)
+tests/                    # 59 tests, all passing
+alembic/versions/         # 0001_pgvector, 0002_init_schema
 ```
 
-## WebSocket Protocol (`/ws/audio`)
+## WebSocket Protocol
 
-JWT passed as `?token=` query param (browser WS can't set headers).
+JWT via `?token=` query param (browser WS can't set headers).
 
-**Inbound:** `start_call`, `audio_chunk` (`{pcm_b64, sample_rate}`), `trigger_intake_extraction`, `end_call`
+**`/ws/audio` inbound:** `start_call`, `audio_chunk {pcm_b64, sample_rate}`, `trigger_intake_extraction`, `end_call`
 
-**Outbound:** `transcript`, `suggestion` (streamed tokens), `sentiment`, `compliance_tick`, `intake_proposal`, `summary_ready`, `error`
+**`/ws/audio` outbound:** `transcript`, `suggestion {text:[bullets], trigger}`, `sentiment`, `compliance_tick {phrase_id}`, `intake_proposal {data}`, `summary_ready {summary}`, `error {code, message}`
 
-Backpressure: drop oldest `transcript` events when outbound queue > 50. Never drop `suggestion` or `intake_proposal`.
+**`/ws/supervisor` outbound:** same events minus `customer_passport` (server-side scrub)
 
-## Implementation Order
+Backpressure: `deque(maxlen=50)` — oldest `transcript` events dropped when full. `suggestion` and `intake_proposal` sent with `priority=True` (bypass queue, direct send).
 
-Follow `backend/TODO.md` phase by phase — do not advance to the next phase until its "Phase exit" check passes. Detailed engineering spec is in `backend/SPEC.md`.
+## Key Configuration (`.env`)
 
-Current status: **Phase 0** (bootstrapping infra files).
+```env
+JWT_SECRET=          # required
+DATABASE_URL=        # defaults to postgres container
+LITELLM_BASE_URL=    # defaults to litellm container
+LLM_MODEL=           # ollama/qwen3:8b-q4_K_M
+EMBEDDING_MODEL=     # ollama/nomic-embed-text
+EMBEDDING_DIM=768
+RAG_TOP_K=5
+EXTRACTION_WINDOW_SECONDS=60
+EXTRACTION_CONFIDENCE_THRESHOLD=0.8
+MAX_PDF_SIZE_MB=50
+COMPLIANCE_PHRASES_PATH=/app/app/data/compliance_phrases.json
+```
 
-## Key Configuration
+## GPU Budget
 
-GPU budget: faster-whisper ~2 GB VRAM + Qwen3-8B Q4_K_M ~5 GB = ≤7 GB on RTX 5070 Ti 16 GB.
+faster-whisper large-v3: ~2 GB VRAM + Qwen3-8B Q4_K_M: ~5 GB = **≤7 GB** on RTX 5070 Ti 16 GB.
 
-Both models are pre-warmed at container start (dummy inference in `main.py` startup hook) to eliminate cold-start latency on the first real call.
+Both warmed in `main.py` lifespan (dummy inference) to eliminate cold-start on first call.
 
-Latency target: audio capture (100 ms) + STT (≤500 ms) + guardrail+RAG (≤150 ms) + LLM first token (≤150 ms) + WS+render (≤100 ms) = **≤1.5 s total**.
+## Latency Target
+
+`audio (100 ms) + STT (≤500 ms) + guardrail+RAG (≤150 ms) + LLM first token (≤150 ms) + WS (≤100 ms)` = **≤1.5 s p95**
+
+## Remaining Work
+
+- Acquire 4 WAV files for `backend/demo/audio/` (team-recorded or TTS)
+- Frontend (React/Vite/Tailwind) — backend API is complete
+- GitHub Actions CI workflow
+- Verify GPU memory budget with `nvidia-smi` during live call
