@@ -127,60 +127,60 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[!]` blocked
 ## Phase 3 — RAG, Intake, Supervisor (Week 3)
 
 ### 3.1 Embeddings + RAG
-- [ ] `app/services/rag_service.py:embed(text)` via LiteLLM embeddings endpoint
-- [ ] Startup assertion: probe embedding length == `EMBEDDING_DIM` (768)
-- [ ] `rag_service.search(query, top_k, tag_filter)` — pgvector cosine SQL per `SPEC.md` §9.2
-- [ ] `rag_service.build_context(transcript_tail, top_k)` — formats top-k into prompt-ready string, capped at 1500 tokens
-- [ ] Wire `build_context` into the suggestion prompt before each LLM call
-- [ ] `tests/test_rag.py`: mock embed; verify SQL ordering and `tag_filter`
+- [x] `app/services/rag_service.py:embed(text)` via LiteLLM embeddings endpoint
+- [x] Startup assertion: probe embedding length == `EMBEDDING_DIM` (768)
+- [x] `rag_service.search(query, top_k, tag_filter)` — pgvector cosine SQL per `SPEC.md` §9.2
+- [x] `rag_service.build_context(transcript_tail, top_k)` — formats top-k into prompt-ready string, capped at 1500 tokens
+- [x] Wire `build_context` into the suggestion prompt before each LLM call
+- [x] `tests/test_rag.py`: mock embed; verify SQL ordering and `tag_filter`
 
 ### 3.2 PDF ingestion
-- [ ] `app/services/ingest_service.py:ingest_pdf(document_id, file_path)` per `SPEC.md` §10
-- [ ] PyMuPDF page-by-page text extraction
-- [ ] Token-count chunking (`tiktoken cl100k_base`, 500-token chunks, 50-token overlap, sentence-boundary aware)
-- [ ] Batch embeddings (32 at a time)
-- [ ] Status transitions: `indexing` → `ready` / `error` with `error_message`
-- [ ] Reject scanned (no text layer) PDFs with clear error
+- [x] `app/services/ingest_service.py:ingest_pdf(document_id, file_path)` per `SPEC.md` §10
+- [x] PyMuPDF page-by-page text extraction
+- [x] Token-count chunking (sentence-boundary regex, 500-token chunks, 50-token overlap)
+- [x] Batch embeddings (32 at a time)
+- [x] Status transitions: `indexing` → `ready` / `error` with `error_message`
+- [x] Reject scanned (no text layer) PDFs with clear error
 
 ### 3.3 Admin documents
-- [ ] `app/schemas/document.py`
-- [ ] `app/routers/admin_documents.py`: `POST` (multipart), `GET` (list), `GET /:id`, `DELETE /:id`, `POST /:id/reindex`
-- [ ] File-size guard: reject > `MAX_PDF_SIZE_MB`
-- [ ] Spawn ingest as `BackgroundTasks`; return `202` with `{document_id, status}`
-- [ ] Cascade delete from disk + `document_chunks`
+- [x] `app/schemas/document.py`
+- [x] `app/routers/admin_documents.py`: `POST` (multipart), `GET` (list), `GET /:id`, `DELETE /:id`, `POST /:id/reindex`
+- [x] File-size guard: reject > `MAX_PDF_SIZE_MB`
+- [x] Spawn ingest as `BackgroundTasks`; return `202` with `{document_id, status}`
+- [x] Cascade delete from disk + `document_chunks`
 - [ ] `tests/test_admin_documents.py`: upload + poll until ready; delete cascades
 
 ### 3.4 Extraction service (intake)
-- [ ] `app/prompts/extraction_uz.py` — exact prompt from `SPEC.md` §13.2
-- [ ] `app/services/extraction_service.py:extract(call_id, transcript)` — returns `Intake`
-- [ ] JSON parsing with code-fence stripping
-- [ ] Confidence threshold: < 0.5 blanks all fields; 0.5-0.8 keeps name only
-- [ ] Passport regex validation `^[A-Z]{2}\d{7}$` — invalid → `null`
-- [ ] Trigger from `audio_ws.py`: when ≥ `EXTRACTION_WINDOW_SECONDS` of transcript exists OR `trigger_intake_extraction` arrives
-- [ ] Push `intake_proposal` event to client over `/ws/audio`
-- [ ] `PATCH /api/calls/:id/intake` → updates `customer_name`, `customer_passport`, `customer_region`, `intake_confirmed_at`
-- [ ] `tests/test_extraction.py`: mock LLM, verify confidence-based blanking + passport regex
+- [x] `app/prompts/extraction_uz.py` — exact prompt from `SPEC.md` §13.2
+- [x] `app/services/extraction_service.py:extract(call_id, transcript)` — returns `Intake`
+- [x] JSON parsing with code-fence stripping
+- [x] Confidence threshold: < 0.5 blanks all fields; 0.5-0.8 keeps name only
+- [x] Passport regex validation `^[A-Z]{2}\d{7}$` — invalid → `null`
+- [x] Trigger from `audio_ws.py`: when ≥ `EXTRACTION_WINDOW_SECONDS` of transcript exists OR `trigger_intake_extraction` arrives
+- [x] Push `intake_proposal` event to client over `/ws/audio`
+- [x] `PATCH /api/calls/:id/intake` → updates `customer_name`, `customer_passport`, `customer_region`, `intake_confirmed_at`
+- [x] `tests/test_extraction.py`: mock LLM, verify confidence-based blanking + passport regex
 
 ### 3.5 Sentiment
-- [ ] `app/services/sentiment_service.py` — keyword pass + LLM tone (rate-limited 1 call / 5 s / call)
-- [ ] Push `sentiment` events on change only (skip duplicates)
+- [x] `app/services/sentiment_service.py` — keyword pass + LLM tone (rate-limited 1 call / 5 s / call)
+- [x] Push `sentiment` events on change only (skip duplicates)
 
 ### 3.6 Compliance
-- [ ] `app/data/compliance_phrases.json` (placeholder list — flag in §Open Questions)
-- [ ] `app/services/compliance_service.py:check_chunk(call_id, text)` — substring + `rapidfuzz` fuzzy (0.85 threshold)
-- [ ] Per-call in-memory state of ticked phrases; persist to `calls.compliance_status` on each tick
-- [ ] Push `compliance_tick` events
-- [ ] `tests/test_compliance.py`: phrase variations, misspellings, no double-tick
+- [x] `app/data/compliance_phrases.json` (placeholder list — flag in §Open Questions)
+- [x] `app/services/compliance_service.py:check_chunk(call_id, text)` — substring + `rapidfuzz` fuzzy (0.85 threshold)
+- [x] Per-call in-memory state of ticked phrases; persist to `calls.compliance_status` on each tick
+- [x] Push `compliance_tick` events
+- [x] `tests/test_compliance.py`: phrase variations, misspellings, no double-tick
 
 ### 3.7 Supervisor stream
-- [ ] `app/services/event_bus.py` — `asyncio.Queue` per subscriber, `publish` / `subscribe(topic)`
-- [ ] Publish from `audio_ws.py` to topic `"supervisor"` for: `call_started`, `transcript_chunk`, `sentiment_update`, `call_ended`
-- [ ] `app/routers/supervisor_ws.py` — accept JWT (require `role:supervisor`), forward all events
-- [ ] **Server-side scrub**: strip `customer_passport` from any payload before sending to supervisor — verify via test
+- [x] `app/services/event_bus.py` — `asyncio.Queue` per subscriber, `publish` / `subscribe(topic)`
+- [x] Publish from `audio_ws.py` to topic `"supervisor"` for: `call_started`, `transcript_chunk`, `sentiment_update`, `call_ended`
+- [x] `app/routers/supervisor_ws.py` — accept JWT (require `role:supervisor`), forward all events
+- [x] **Server-side scrub**: strip `customer_passport` from any payload before sending to supervisor — verify via test
 
 ### 3.8 Tests
-- [ ] `tests/test_supervisor_passport_scrub.py` — assert passport never appears in supervisor payloads
-- [ ] `tests/test_event_bus.py` — multiple subscribers, no cross-talk
+- [x] `tests/test_supervisor_passport_scrub.py` — assert passport never appears in supervisor payloads
+- [x] `tests/test_event_bus.py` — multiple subscribers, no cross-talk
 
 **Phase exit:**
 - Admin uploads a PDF via `POST /api/admin/documents` and it transitions to `ready` in ≤ 30 s
@@ -194,24 +194,24 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[!]` blocked
 ## Phase 4 — Summary, Demo Mode, Polish (Week 4)
 
 ### 4.1 Summary
-- [ ] `app/prompts/summary_uz.py` — exact prompt from `SPEC.md` §14.1
-- [ ] `app/services/summary_service.py:summarize(call_id)` — calls LLM with full transcript + compliance summary
-- [ ] Wire into `POST /api/calls/:id/end`: generate summary, persist to `calls.summary`, return in response
-- [ ] Push `summary_ready` event over `/ws/audio` before closing the connection
+- [x] `app/prompts/summary_uz.py` — exact prompt from `SPEC.md` §14.1
+- [x] `app/services/summary_service.py:summarize(call_id)` — calls LLM with full transcript + compliance summary
+- [x] Wire into `audio_ws.py` end_call: generate summary, persist to `calls.summary`
+- [x] Push `summary_ready` event over `/ws/audio` before closing the connection
 
 ### 4.2 Demo Mode
-- [ ] `backend/demo/scenarios.json` with the 4 scenario entries from `SPEC.md` §17.1
+- [x] `backend/demo/scenarios.json` with the 4 scenario entries from `SPEC.md` §17.1
 - [ ] Record / acquire 4 WAV files in `backend/demo/audio/` (objection_expensive, cross_sell_cashback, compliance_apr_miss, intake_extraction)
-- [ ] `app/services/demo_service.py:play_scenario(call_id, scenario_id, send)` — slices WAV into 100 ms chunks and feeds via the same path as `audio_chunk` events
-- [ ] `app/routers/demo.py`: `GET /api/demo/scenarios`, `POST /api/demo/play`
+- [x] `app/services/demo_service.py:play_scenario(call_id, scenario_id, send)` — slices WAV into 100 ms chunks and feeds via the same path as `audio_chunk` events
+- [x] `app/routers/demo.py`: `GET /api/demo/scenarios`, `POST /api/demo/play`
 
 ### 4.3 Latency observability
-- [ ] Per-suggestion log: `{event: "suggestion_emitted", call_id, latency_ms}` measured from `audio_chunk` arrival to first token sent
-- [ ] structlog PII scrubber for `customer_passport` (never serialize)
-- [ ] Test: assert serialized log line does NOT contain a known passport value
+- [x] Per-suggestion log: `{event: "suggestion_emitted", call_id, latency_ms}` measured from `audio_chunk` arrival to first token sent
+- [x] structlog PII scrubber for `customer_passport` (never serialize)
+- [x] Test: assert serialized log line does NOT contain a known passport value
 
 ### 4.4 Final polish
-- [ ] `/healthz` returns full readiness: `{status, db_ok, ollama_ok, models_loaded}`
+- [x] `/healthz` returns full readiness: `{status, db_ok, ollama_ok, models_loaded}`
 - [ ] Docker healthcheck per `SPEC.md` §20.2
 - [ ] Verify backpressure: stress test with 1k synthetic transcript events, confirm only oldest `transcript` events drop, never `suggestion`/`intake_proposal`
 - [ ] Tune sentiment + compliance thresholds against real demo audio
