@@ -74,44 +74,44 @@ Legend: `[ ]` open · `[x]` done · `[~]` in progress · `[!]` blocked
 ## Phase 2 — Call Loop, No RAG (Week 2)
 
 ### 2.1 STT
-- [ ] `app/services/stt_service.py` with module-level model singleton
-- [ ] Load `faster-whisper large-v3` on `device=cuda`, `compute_type=float16`
-- [ ] `transcribe_chunk(pcm, sr, language_hint)` → `TranscribeResult` via `asyncio.to_thread`
-- [ ] `app/utils/audio.py:ChunkBuffer` — buffers PCM until ≥ 1 s, then flushes
-- [ ] Naive energy-based speaker turn detection (RMS threshold + 800 ms silence)
-- [ ] Warm-up call in `main.py` startup hook
+- [x] `app/services/stt_service.py` with module-level model singleton
+- [x] Load `faster-whisper large-v3` on `device=cuda`, `compute_type=float16`
+- [x] `transcribe_chunk(pcm, sr, language_hint)` → `TranscribeResult` via `asyncio.to_thread`
+- [x] `app/utils/audio.py:ChunkBuffer` — buffers PCM until ≥ 1 s, then flushes
+- [x] Naive energy-based speaker turn detection (RMS threshold + 800 ms silence)
+- [x] Warm-up call in `main.py` startup hook
 
 ### 2.2 WebSocket: audio
-- [ ] `app/schemas/ws.py` — message envelopes per `SPEC.md` §15.3
-- [ ] `app/routers/audio_ws.py` — accept JWT via `?token=`, validate, accept
-- [ ] Handle inbound types: `start_call`, `audio_chunk`, `trigger_intake_extraction` (stub for phase 3), `end_call`
-- [ ] Outbound: `transcript` events as STT produces results
-- [ ] Per-call in-memory state: rolling transcript dict keyed by `call_id`
-- [ ] Backpressure: drop oldest `transcript` events if outbound queue > 50
+- [x] `app/schemas/ws.py` — message envelopes per `SPEC.md` §15.3
+- [x] `app/routers/audio_ws.py` — accept JWT via `?token=`, validate, accept
+- [x] Handle inbound types: `start_call`, `audio_chunk`, `trigger_intake_extraction` (stub for phase 3), `end_call`
+- [x] Outbound: `transcript` events as STT produces results
+- [x] Per-call in-memory state: rolling transcript dict keyed by `call_id`
+- [x] Backpressure: drop oldest `transcript` events if outbound queue > 50
 
 ### 2.3 Calls REST
-- [ ] `app/schemas/call.py`
-- [ ] `app/routers/calls.py`: `POST /api/calls`, `GET /api/calls/:id`, `GET /api/calls`, `POST /api/calls/:id/end` (stub returns transcript only for now)
-- [ ] Authorization: agent sees only own calls; supervisor sees all
+- [x] `app/schemas/call.py`
+- [x] `app/routers/calls.py`: `POST /api/calls`, `GET /api/calls/:id`, `GET /api/calls`, `POST /api/calls/:id/end` (stub returns transcript only for now)
+- [x] Authorization: agent sees only own calls; supervisor sees all
 
 ### 2.4 Guardrail
-- [ ] `app/services/guardrail_service.py` with `BANK_TOPICS` set + `is_bank_related(text)`
-- [ ] Tokenizer preserves apostrophes (so `to'lov` is one token)
-- [ ] `tests/test_guardrail.py`: bank phrases pass, non-bank drop, mixed UZ/RU
+- [x] `app/services/guardrail_service.py` with `BANK_TOPICS` set + `is_bank_related(text)`
+- [x] Tokenizer preserves apostrophes (so `to'lov` is one token)
+- [x] `tests/test_guardrail.py`: bank phrases pass, non-bank drop, mixed UZ/RU
 
 ### 2.5 LLM service (no RAG yet)
-- [ ] `app/services/llm_service.py` — async `chat(messages, max_tokens, stream, timeout)` via LiteLLM
-- [ ] `app/prompts/system_uz.py` — exact Uzbek-only system prompt from `idea.md`
-- [ ] Suggestion prompt template (no RAG context yet — leave `{rag_context}` empty)
-- [ ] Post-LLM language assertion + single retry; drop + warn on second failure
-- [ ] Wire LLM call into `audio_ws.py` when guardrail passes; stream tokens back as `suggestion` events
+- [x] `app/services/llm_service.py` — async `chat(messages, max_tokens, stream, timeout)` via LiteLLM
+- [x] `app/prompts/system_uz.py` — exact Uzbek-only system prompt from `idea.md`
+- [x] Suggestion prompt template (no RAG context yet — leave `{rag_context}` empty)
+- [x] Post-LLM language assertion + single retry; drop + warn on second failure
+- [x] Wire LLM call into `audio_ws.py` when guardrail passes; stream tokens back as `suggestion` events
 
 ### 2.6 Warm-up
-- [ ] In `main.py` startup: dummy 1-token chat call + dummy embed call to LiteLLM
-- [ ] Log warm-up duration
+- [x] In `main.py` startup: dummy 1-token chat call + dummy embed call to LiteLLM
+- [x] Log warm-up duration
 
 ### 2.7 Tests
-- [ ] `tests/test_llm_service.py` with mocked LiteLLM HTTP — verify retry on non-Uzbek output
+- [x] `tests/test_llm_service.py` with mocked LiteLLM HTTP — verify retry on non-Uzbek output
 - [ ] Manual smoke: open WS with `wscat`, send a 1 s WAV as base64, confirm `transcript` events fire
 
 **Phase exit:**

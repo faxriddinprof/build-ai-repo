@@ -1,4 +1,5 @@
 import structlog
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -6,12 +7,25 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.logging_config import RequestIdMiddleware, setup_logging
-from app.routers import auth, admin_users
+from app.routers import auth, admin_users, calls
+from app.routers.audio_ws import router as audio_ws_router
 
 setup_logging(settings.LOG_LEVEL)
 log = structlog.get_logger()
 
-app = FastAPI(title=settings.APP_NAME)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.services import stt_service, llm_service
+    log.info("startup.begin")
+    stt_service.load_model()
+    await stt_service.warmup()
+    await llm_service.warmup()
+    log.info("startup.done")
+    yield
+
+
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +38,8 @@ app.add_middleware(RequestIdMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
+app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
+app.include_router(audio_ws_router, tags=["websocket"])
 
 
 @app.get("/healthz")
