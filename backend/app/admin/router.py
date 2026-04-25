@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,3 +143,39 @@ async def reindex_document(
 
     log.info("admin.panel.reindex", document_id=document_id)
     return RedirectResponse(f"/admin?msg=Reindexing+{doc.filename}", status_code=303)
+
+
+@router.get("/logout", response_class=HTMLResponse)
+async def logout():
+    """Clear browser Basic Auth cache by returning 401 with a logout page."""
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Logged out</title>
+  <style>
+    body { font-family: system-ui, sans-serif; display: flex; align-items: center;
+           justify-content: center; height: 100vh; margin: 0; background: #f5f7fa; }
+    .box { text-align: center; background: #fff; padding: 40px 48px;
+           border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+    h2 { color: #1a3c5e; margin-bottom: 12px; }
+    p  { color: #555; margin-bottom: 24px; }
+    a  { display: inline-block; padding: 10px 24px; background: #1a3c5e;
+         color: #fff; border-radius: 4px; text-decoration: none; font-size: 14px; }
+    a:hover { background: #14304d; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Logged out</h2>
+    <p>Your session has been cleared.</p>
+    <a href="/admin">Log in again</a>
+  </div>
+</body>
+</html>"""
+    return Response(
+        content=html,
+        status_code=401,
+        media_type="text/html",
+        headers={"WWW-Authenticate": 'Basic realm="Bank Admin Panel"'},
+    )

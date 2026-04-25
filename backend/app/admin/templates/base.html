@@ -10,7 +10,11 @@
   <header>
     <div class="header-inner">
       <span class="brand">Bank Admin Panel</span>
-      <span class="user-info">Logged in as <strong>{{ admin.email }}</strong></span>
+      <span class="user-info">
+        Logged in as <strong>{{ admin.email }}</strong>
+        &nbsp;·&nbsp;
+        <a href="/admin/logout" class="logout-link">Logout</a>
+      </span>
     </div>
   </header>
   <main>
