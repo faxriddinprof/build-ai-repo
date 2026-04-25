@@ -13,10 +13,10 @@ Runs entirely locally on a single GPU host. No external API calls.
 ## 1. Configure environment
 
 ```bash
-cp .env.example .env
+cp backend/.env.example backend/.env
 ```
 
-Edit `.env` — only one field is required:
+Edit `backend/.env` — only one field is required:
 
 ```env
 JWT_SECRET=your-strong-random-secret-here
@@ -58,10 +58,10 @@ make migrate
 make seed
 ```
 
-Default admin credentials (override in `.env`):
+Default admin credentials (override in `backend/.env`):
 
 ```
-ADMIN_EMAIL=admin@bank.local
+ADMIN_EMAIL=admin@bank.uz
 ADMIN_PASSWORD=changeme
 ```
 
@@ -130,25 +130,42 @@ Brings up postgres, ollama, litellm, and api together.
 | `GET  /api/calls` | Call history |
 | `GET  /api/demo/scenarios` | List demo scenarios |
 | `POST /api/demo/play` | Play a demo WAV scenario |
-| `WS   /ws/audio?token=` | Agent audio stream |
+| `WS   /ws/signaling?token=` | WebRTC SDP/ICE exchange |
+| `POST /api/transcribe-chunk` | REST fallback audio upload |
 | `WS   /ws/supervisor?token=` | Supervisor live feed |
 | `GET  /healthz` | Readiness probe |
 
-## WebSocket smoke test
+## Real-time audio test
+
+**WebRTC path:** See `backend/docs/SIGNALING.md` for the full frontend integration guide (SDP/ICE exchange, DataChannel protocol, ICE config).
+
+**REST fallback smoke test** (curl — no browser required):
 
 ```bash
-npm install -g wscat
+TOKEN=$(curl -sX POST http://localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@bank.uz","password":"changeme"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Get agent token (create agent user via admin API first)
-wscat -c "ws://localhost:8000/ws/audio?token=$AGENT_TOKEN"
+CALL_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
 
-# Send:
-{"type":"start_call"}
-{"type":"audio_chunk","pcm_b64":"<base64-pcm>","sample_rate":16000}
-{"type":"end_call"}
+# Send a 2s audio chunk (webm/opus from MediaRecorder, or any ffmpeg-decodable format)
+curl -sX POST http://localhost:8000/api/transcribe-chunk \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "audio=@chunk.webm" \
+  -F "call_id=$CALL_ID" \
+  -F "lang_hint=uz" | python3 -m json.tool
+# → {"call_id":"...","events":[{"type":"transcript",...},{"type":"suggestion",...}]}
+
+# Finalize call (triggers summary)
+curl -sX POST http://localhost:8000/api/transcribe-chunk \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "audio=@empty.webm" \
+  -F "call_id=$CALL_ID" \
+  -F "final=true" | python3 -m json.tool
+# → {"call_id":"...","events":[{"type":"summary_ready","summary":{...}}]}
 ```
 
-Expected outbound: `transcript` → `suggestion` (if bank-related) → `summary_ready`.
+Expected events: `transcript` → `suggestion` (if bank-related) → `summary_ready`.
 
 ## PDF ingestion (RAG)
 

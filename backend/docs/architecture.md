@@ -14,8 +14,8 @@ Full system design: deployment, application layers, data flows, and security mod
 │   │ postgres │    │  ollama  │    │ litellm  │    │  FastAPI    │  │
 │   │ :5432    │    │ :11434   │    │ :4000    │    │  api :8000  │  │
 │   │ pgvector │    │ qwen3-8b │    │ proxy    │    │             │  │
-│   │ pg16     │    │ nomic-   │    │          │    │ uvicorn     │  │
-│   │          │    │ embed    │    │          │    │ workers=1   │  │
+│   │ pg16     │    │ bge-m3   │    │          │    │ uvicorn     │  │
+│   │          │    │          │    │          │    │ workers=1   │  │
 │   └──────────┘    └──────────┘    └──────────┘    └─────────────┘  │
 │   Docker Compose — internal network "buildwithai_default"           │
 └─────────────────────────────────────────────────────────────────────┘
@@ -81,21 +81,23 @@ backend/app/
 ├── main.py           FastAPI instance + lifespan + CORS + /healthz
 │   │
 │   ├── Lifespan startup hook (blocking, sequential):
+│   │   0. alembic upgrade head            ← auto-migrate on startup
 │   │   1. compliance_service.load_phrases()
 │   │   2. stt_service.load_model()        ← CUDA load, ~2 GB VRAM
 │   │   3. stt_service.warmup()            ← dummy 1s silence
 │   │   4. llm_service.warmup()            ← dummy 1-token chat
-│   │   5. rag_service.embed("salom")      ← assert dim==768
+│   │   5. rag_service.embed("salom")      ← retry ×5, assert dim==1024
 │   │   → _models_loaded = True
 │   │
 │   └── Routers mounted:
-│       /api/auth         auth.py
-│       /api/admin/users  admin_users.py
-│       /api/admin/documents  admin_documents.py
-│       /api/calls        calls.py
-│       /api/demo         demo.py
-│       /ws/audio         audio_ws.py
-│       /ws/supervisor    supervisor_ws.py
+│       /api/auth              auth.py
+│       /api/admin/users       admin_users.py
+│       /api/admin/documents   admin_documents.py
+│       /api/calls             calls.py
+│       /api/demo              demo.py
+│       /api/transcribe-chunk  transcribe.py     ← REST fallback
+│       /ws/signaling          signaling_ws.py   ← WebRTC SDP/ICE
+│       /ws/supervisor         supervisor_ws.py
 │
 ├── config.py         Pydantic Settings (reads .env)
 ├── database.py       async SQLAlchemy engine + session factory
@@ -202,78 +204,65 @@ PATCH  /api/calls/:id/intake   [agent]    → CallResponse
 GET    /api/demo/scenarios     [any auth] → list[ScenarioResponse]
 POST   /api/demo/play          [any auth] → 202 {call_id, status}
 
+POST   /api/transcribe-chunk   [agent|admin]  REST fallback audio upload
+
 GET    /healthz                [public]   → {status, db_ok, ollama_ok, models_loaded}
 
 WebSocket  (?token=<jwt> — browser cannot set auth headers)
 ──────────────────────────────────────────────────────────────────
-WS /ws/audio         [agent]      full-duplex audio stream
-WS /ws/supervisor    [supervisor|admin]  read-only event fan-out
+WS /ws/signaling     [agent|admin]        WebRTC SDP/ICE exchange
+WS /ws/supervisor    [supervisor|admin]   read-only event fan-out
 ```
 
 ---
 
 ## 6. Real-Time Audio Pipeline (Hot Path)
 
+Two transports — same shared logic in `services/call_pipeline.py`.
+
 ```
-                   WS /ws/audio?token=<jwt>
-                           │
-              ┌────────────┼────────────────┐
-              │  inbound message types      │
-              │  start_call                 │
-              │  audio_chunk               │ ← main loop
-              │  trigger_intake_extraction  │
-              │  end_call                   │
-              └────────────┬────────────────┘
-                           │ audio_chunk: {pcm_b64, sample_rate}
-                           ▼
-           base64.b64decode → raw PCM bytes
-                           │
-                           ▼
-              ┌────────────────────────────┐
-              │ ChunkBuffer  (≥ 1 s PCM)   │ accumulates, then flushes
-              │ SpeakerTracker (RMS 0.01 + │ labels agent / customer
-              │   800 ms silence window)   │
-              └────────────┬───────────────┘
-                           │
-                           ▼
-              ┌────────────────────────────┐
-              │ stt_service                │ asyncio.to_thread (non-blocking)
-              │ faster-whisper large-v3    │ CUDA float16
-              │ → {text, language, conf}   │
-              └────────────┬───────────────┘
-                           │
-             ┌─────────────┼──────────────────────────────┐
-             │             │                              │
-             ▼             ▼                              ▼
-   compliance_service  sentiment_service         transcript store
-   check_chunk()       analyze()                 append turn
-   rapidfuzz 0.85      keyword + LLM             outbound: transcript
-   → compliance_tick   → sentiment event         event_bus: supervisor
-   → DB update         (change-only)
-             │
-             ▼
-   extraction trigger?
-   elapsed ≥ 60s OR trigger msg
-             │
-             ▼
-   extraction_service.extract()  → intake_proposal WS event
-             │
-             ▼
-   guardrail_service.is_bank_related()
-   False → DROP ──────────────────────────────────► (nothing)
-   True  → continue
-             │
-             ▼
-   rag_service.build_context()
-   embed → pgvector search → top-5 chunks
-             │
-             ▼
-   llm_service.get_suggestion()  streaming
-   Qwen3-8B Q4 → _looks_uzbek() → retry once
-             │
-             ▼
-   WS outbound: {type:"suggestion", text:[...]}
-   DB: suggestions_log INSERT
+  WebRTC path                           REST fallback
+  ───────────                           ─────────────
+  WS /ws/signaling (SDP/ICE)            POST /api/transcribe-chunk
+  → aiortc RTCPeerConnection            multipart: audio + call_id
+  → Opus AudioFrame recv loop           pydub decode → 16kHz int16
+  → ChunkBuffer (≥1s PCM)               ChunkBuffer (≥1s PCM)
+  → DataChannel "transcripts"           → JSON response body
+        │                                      │
+        └──────────────┬────────────────────────┘
+                       ▼
+        services/call_pipeline.py
+        process_audio_chunk(call_id, pcm_bytes)
+                       │
+          ┌────────────┼──────────────────────────────┐
+          ▼            ▼                              ▼
+  stt_service    compliance_service        sentiment_service
+  faster-whisper check_chunk()            analyze() keyword+LLM
+  → text         rapidfuzz 0.85           → sentiment event
+                 → compliance_tick        event_bus: supervisor
+                 → DB update
+          │
+          ▼ transcript → DB (Call.transcript append, per chunk)
+          ▼ event_bus.publish("supervisor", transcript)
+          │
+          ▼
+  auto-extraction at 60s → extraction_service.extract()
+          │
+          ▼
+  guardrail_service.is_bank_related()
+  False → DROP    True → continue
+          │
+          ▼
+  rag_service.build_context()
+  dense (bge-m3 + pgvector) + sparse (BM25s) → RRF → top-5
+          │
+          ▼
+  llm_service.get_suggestion()  streaming
+  Qwen3-8B Q4 → _looks_uzbek() → retry once
+          │
+          ▼
+  suggestion event → transport caller
+  DB: SuggestionLog INSERT (one row per emission)
 ```
 
 ---
@@ -320,9 +309,18 @@ Scanned-PDF bypass       ingest_service checks text == "" → error status
 ## 9. In-Memory State (per running process)
 
 ```
-audio_ws.py globals:
-  _transcripts:  dict[call_id, list[{speaker, text, ts}]]
-  _call_start:   dict[call_id, float]   ← monotonic time
+call_pipeline.py globals:
+  _call_state:  dict[call_id, {
+    transcripts:      list[{speaker, text, ts}]
+    start_time:       float          ← monotonic
+    extraction_done:  bool
+    speaker_tracker:  SpeakerTracker
+    lang_hint:        str
+  }]
+
+webrtc_service.py globals:
+  _active_pcs:  dict[call_id, RTCPeerConnection]
+  _active_dcs:  dict[call_id, DataChannel]
 
 compliance_service.py:
   _ticked_phrases: dict[call_id, set[phrase_id]]
@@ -345,15 +343,22 @@ Persistence: calls table in PostgreSQL (transcript, summary, compliance_status).
 ## 10. Service Dependency Graph
 
 ```
-audio_ws.py
+call_pipeline.py  (shared AI logic — called by both transports)
   ├── stt_service          ← faster-whisper (GPU)
   ├── compliance_service   ← rapidfuzz + phrases.json
   ├── sentiment_service    ← keyword heuristic + llm_service
   ├── extraction_service   ← llm_service
+  ├── summary_service      ← llm_service
   ├── guardrail_service    ← pure Python keyword set
-  ├── rag_service          ← litellm aembedding + asyncpg
+  ├── rag_service          ← litellm aembedding + asyncpg + BM25s
   ├── llm_service          ← litellm acompletion
   └── event_bus            ← asyncio queues → supervisor_ws
+
+signaling_ws.py  (WebRTC transport)
+  └── webrtc_service       ← aiortc RTCPeerConnection + call_pipeline
+
+transcribe.py  (REST fallback transport)
+  └── call_pipeline        ← direct function calls
 
 admin_documents.py
   └── ingest_service
@@ -369,5 +374,5 @@ auth.py / deps.py
 External runtime deps (must be healthy before api starts):
   postgres :5432           ← asyncpg connections via SQLAlchemy pool
   litellm  :4000           ← all acompletion + aembedding calls
-  ollama   :11434          ← serves qwen3 + nomic to litellm
+  ollama   :11434          ← serves qwen3 + bge-m3 to litellm
 ```

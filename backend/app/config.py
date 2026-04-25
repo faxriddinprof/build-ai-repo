@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -55,6 +56,14 @@ class Settings(BaseSettings):
     SENTIMENT_LLM_COOLDOWN_SECONDS: float = 5.0
     SENTIMENT_TURNS_WINDOW: int = 3
     SENTIMENT_SCORE_THRESHOLD: int = 2
+
+    # WebRTC / signaling
+    STUN_SERVERS: list[str] = ["stun:stun.l.google.com:19302"]
+    TURN_SERVER: Optional[str] = None
+    TURN_USER: Optional[str] = None
+    TURN_PASSWORD: Optional[str] = None
+    WEBRTC_AUDIO_CHUNK_SECONDS: float = 1.0
+    FALLBACK_ENABLED: bool = True
 
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",

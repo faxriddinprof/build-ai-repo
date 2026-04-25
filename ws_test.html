@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>AI Sales Copilot — WebSocket Test</title>
+  <title>AI Sales Copilot — WebSocket Test [DEPRECATED]</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: monospace; background: #0f0f0f; color: #e0e0e0; padding: 16px; }
     h1 { font-size: 1rem; color: #7aa2f7; margin-bottom: 12px; }
+    .deprecated { background: #3d1f00; border: 1px solid #f0a000; color: #f0c060;
+                  padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem; border-radius: 4px; }
     .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
     input, select { background: #1a1a2e; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px;
                     font-family: monospace; font-size: 0.85rem; border-radius: 4px; }
@@ -42,7 +44,12 @@
 </head>
 <body>
 
-<h1>🎙 AI Sales Copilot — WebSocket Test</h1>
+<div class="deprecated">
+  ⚠ DEPRECATED — this file tests the old <code>/ws/audio</code> WebSocket endpoint which has been removed.<br>
+  The new real-time path is WebRTC via <code>/ws/signaling</code> + DataChannel, with REST fallback at
+  <code>POST /api/transcribe-chunk</code>. See <code>backend/docs/SIGNALING.md</code> for the full frontend integration guide.
+</div>
+<h1>🎙 AI Sales Copilot — WebSocket Test [DEPRECATED]</h1>
 
 <!-- AUTH -->
 <div class="section">

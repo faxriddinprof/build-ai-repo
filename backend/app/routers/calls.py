@@ -93,8 +93,9 @@ async def end_call(
         raise HTTPException(status_code=404, detail="Call not found")
     if call.agent_id != agent.id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    call.ended_at = datetime.utcnow()
-    await db.commit()
+    from app.services import call_pipeline
+    summary_event = await call_pipeline.finalize_call(call_id)
     log.info("call.ended", call_id=call_id)
-    # Summary generation wired in Phase 4
-    return CallEndResponse(call_id=call_id, summary=call.summary)
+    result2 = await db.execute(select(Call).where(Call.id == call_id))
+    call = result2.scalar_one_or_none()
+    return CallEndResponse(call_id=call_id, summary=call.summary if call else {})

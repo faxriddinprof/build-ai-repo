@@ -10,7 +10,7 @@
 COMPOSE        := docker compose
 API_SVC        := api
 BACKEND        := backend
-ENV_FILE       := .env
+ENV_FILE       := backend/.env
 TEST_DB_URL    := postgresql+asyncpg://sales:sales@localhost:5432/sales_test
 JWT_TEST       := test_secret
 
@@ -45,7 +45,7 @@ ps:             ## Show container status and health
 
 # ── first-time setup ──────────────────────────────────────────────────────────
 env:            ## Copy .env.example → .env (skip if exists)
-	@test -f $(ENV_FILE) && echo ".env already exists, skipping" || cp .env.example $(ENV_FILE)
+	@test -f $(ENV_FILE) && echo ".env already exists, skipping" || cp backend/.env.example $(ENV_FILE)
 
 models-pull:    ## Pull Ollama models (LLM + embeddings) into ollama container
 	$(COMPOSE) exec ollama ollama pull qwen3:8b-q4_K_M
@@ -102,7 +102,7 @@ health:         ## Hit /healthz and pretty-print the response
 login:          ## Login with admin credentials and print the access token
 	@curl -s -X POST http://localhost:8000/api/auth/login \
 	  -H 'Content-Type: application/json' \
-	  -d '{"email":"admin@bank.local","password":"changeme"}' \
+	  -d '{"email":"admin@bank.uz","password":"changeme"}' \
 	  | python3 -m json.tool
 
 litellm-health: ## Check LiteLLM proxy health

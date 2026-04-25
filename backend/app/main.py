@@ -12,10 +12,11 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.logging_config import RequestIdMiddleware, setup_logging
 from app.routers import auth, admin_users, calls
-from app.routers.audio_ws import router as audio_ws_router
+from app.routers.signaling_ws import router as signaling_ws_router
 from app.routers.supervisor_ws import router as supervisor_ws_router
 from app.routers.admin_documents import router as admin_documents_router
 from app.routers.demo import router as demo_router
+from app.routers.transcribe import router as transcribe_router
 
 setup_logging(settings.LOG_LEVEL)
 log = structlog.get_logger()
@@ -72,6 +73,8 @@ async def lifespan(app: FastAPI):
     _models_loaded = True
     log.info("startup.done")
     yield
+    from app.services import webrtc_service
+    await webrtc_service.close_all()
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
@@ -90,8 +93,9 @@ app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
 app.include_router(admin_documents_router, prefix="/api/admin", tags=["admin"])
 app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
 app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
-app.include_router(audio_ws_router, tags=["websocket"])
+app.include_router(signaling_ws_router, tags=["websocket"])
 app.include_router(supervisor_ws_router, tags=["websocket"])
+app.include_router(transcribe_router, prefix="/api", tags=["transcribe"])
 
 
 @app.get("/healthz")

@@ -47,7 +47,7 @@ services:
 
   api:
     build: ./backend
-    env_file: .env
+    env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://sales:sales@postgres:5432/sales
       LITELLM_BASE_URL: http://litellm:4000
@@ -67,6 +67,23 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+
+# ── TURN server (optional) ────────────────────────────────────────────────────
+# Uncomment to enable TURN for corporate NAT traversal. Set TURN_USER and
+# TURN_PASSWORD in backend/.env. STUN alone is sufficient for local LAN demos.
+#
+#  coturn:
+#    image: coturn/coturn
+#    network_mode: host
+#    environment:
+#      TURN_USER: ${TURN_USER:-turnuser}
+#      TURN_PASSWORD: ${TURN_PASSWORD:-changeme}
+#    command: >
+#      -n --log-file=stdout
+#      --min-port=49152 --max-port=65535
+#      --user=${TURN_USER:-turnuser}:${TURN_PASSWORD:-changeme}
+#      --realm=bank.local
+#      --no-tls --no-dtls
 
 volumes:
   postgres_data:

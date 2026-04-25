@@ -14,17 +14,24 @@ Three roles: `agent`, `supervisor`, `admin`. Single bank instance, JWT auth.
 
 ```
 Browser/Agent
-  │  WS /ws/audio?token=<jwt>
-  ▼
-audio_ws.py
-  ├── ChunkBuffer (≥1 s PCM) → stt_service (faster-whisper)
-  ├── compliance_service (rapidfuzz keyword match)
-  ├── sentiment_service (keyword score + LLM tone)
-  ├── extraction_service (LLM → JSON intake, auto at 60 s)
-  ├── guardrail_service (BANK_TOPICS keyword filter)
-  ├── rag_service (BGE-M3 dense + BM25s sparse → RRF → top-5)
-  └── llm_service (Qwen3-8B via LiteLLM, streaming)
-        └── event_bus → WS /ws/supervisor?token=<jwt>
+  ├── WS /ws/signaling?token=<jwt>  (SDP + ICE only; closes after answer)
+  │     └── aiortc RTCPeerConnection → Opus audio frames
+  └── POST /api/transcribe-chunk    (REST fallback when WebRTC fails)
+          │
+          ▼
+  services/call_pipeline.py   ← shared pipeline for BOTH paths
+    ├── stt_service (faster-whisper)
+    ├── compliance_service (rapidfuzz keyword match)
+    ├── sentiment_service (keyword score + LLM tone)
+    ├── extraction_service (LLM → JSON intake, auto at 60 s)
+    ├── guardrail_service (BANK_TOPICS keyword filter)
+    ├── rag_service (BGE-M3 dense + BM25s sparse → RRF → top-5)
+    ├── llm_service (Qwen3-8B via LiteLLM, streaming)
+    └── event_bus → WS /ws/supervisor?token=<jwt>
+
+  Events delivered via:
+    WebRTC:  DataChannel "transcripts" (bidirectional)
+    REST:    JSON response body { events: [...] }
 
 Admin
   POST /api/admin/documents
@@ -110,9 +117,12 @@ app/
 │   ├── admin_documents.py  # /api/admin/documents CRUD + reindex; triggers BM25 rebuild on delete
 │   ├── calls.py         # /api/calls CRUD + intake PATCH + end POST (agent-only)
 │   ├── demo.py          # /api/demo/scenarios|play
-│   ├── audio_ws.py      # WS /ws/audio (agent stream)
+│   ├── signaling_ws.py  # WS /ws/signaling (SDP/ICE exchange; closes after answer)
+│   ├── transcribe.py    # POST /api/transcribe-chunk (REST fallback for WebRTC)
 │   └── supervisor_ws.py # WS /ws/supervisor (fan-out, passport scrubbed)
 ├── services/
+│   ├── call_pipeline.py # Shared AI pipeline (WebRTC + REST): STT→guardrail→RAG→LLM
+│   ├── webrtc_service.py  # aiortc PeerConnection lifecycle; Opus→PCM resampling
 │   ├── auth_service.py  # hash_password, verify_password, JWT issue/decode
 │   ├── stt_service.py   # faster-whisper singleton, transcribe_chunk (beam_size from WHISPER_BATCH_SIZE_REALTIME)
 │   ├── guardrail_service.py  # is_bank_related (BANK_TOPICS keyword set)
@@ -143,7 +153,7 @@ demo/
 ├── scenarios.json        # 4 hackathon demo scenarios
 └── audio/                # WAV files (not committed — acquire separately)
 uploads/                  # volume-mounted PDFs + BM25 on-disk index (gitignored)
-tests/                    # 68 tests, all passing
+tests/                    # 68+ tests; test_call_pipeline.py + test_transcribe_endpoint.py added
 alembic/versions/         # 0001_pgvector, 0002_init_schema, 0003_bge_m3_1024
 ```
 
@@ -175,21 +185,26 @@ make convert-stt
 
 Ollama models stored in `static/media/models/` (bind-mounted to `/root/.ollama` in ollama container). Pull once with `make models-pull`. Survives container rebuilds.
 
-## WebSocket Protocol
+## Real-time Protocol
 
-JWT via `?token=` query param (browser WS can't set headers).
+See `backend/docs/SIGNALING.md` for the full frontend integration guide.
 
-**`/ws/audio` inbound:** `start_call`, `audio_chunk {pcm_b64, sample_rate}`, `trigger_intake_extraction`, `end_call`
+**WebRTC path** (primary):
+- `WS /ws/signaling?token=<jwt>` — SDP + ICE exchange only; JWT in query param
+- DataChannel `"transcripts"` (bidirectional) carries control msgs and events
+- Inbound (client → server): `start_call {call_id?, language_hint?}`, `end_call`, `trigger_intake_extraction`
+- Outbound (server → client): `call_started`, `transcript`, `suggestion`, `sentiment`, `compliance_tick`, `intake_proposal`, `summary_ready`, `error`
 
-**`/ws/audio` outbound:** `transcript`, `suggestion {text:[bullets], trigger}`, `sentiment`, `compliance_tick {phrase_id}`, `intake_proposal {data}`, `summary_ready {summary}`, `error {code, message}`
+**REST fallback path** (when WebRTC ICE fails):
+- `POST /api/transcribe-chunk` — multipart: `audio` (webm/opus or wav), `call_id`, `lang_hint?`, `final?`
+- Returns `{ call_id, events: [...] }` — same event shapes as DataChannel
+- Stateful via `call_id`; `final=true` triggers summary
 
 **`/ws/supervisor` outbound:** same events minus `customer_passport` (server-side scrub)
 
-Backpressure: `deque(maxlen=50)` — oldest `transcript` events dropped when full. `suggestion` and `intake_proposal` bypass queue (direct send).
+## Key Configuration (`backend/.env`)
 
-## Key Configuration (`.env`)
-
-All constants live in `config.py`. Override in `.env`:
+All constants live in `config.py`. Override in `backend/.env`:
 
 ```env
 JWT_SECRET=             # required — generate: openssl rand -hex 32
@@ -225,6 +240,12 @@ SENTIMENT_LLM_COOLDOWN_SECONDS=5.0
 SENTIMENT_TURNS_WINDOW=3
 SENTIMENT_SCORE_THRESHOLD=2
 
+# WebRTC
+STUN_SERVERS=["stun:stun.l.google.com:19302"]
+FALLBACK_ENABLED=true
+# TURN_SERVER / TURN_USER / TURN_PASSWORD (optional; uncomment coturn in docker-compose.yml)
+WEBRTC_AUDIO_CHUNK_SECONDS=1.0
+
 # Admin seed
 ADMIN_EMAIL=admin@bank.uz
 ADMIN_PASSWORD=changeme
@@ -243,9 +264,10 @@ Both warmed in `main.py` lifespan (dummy inference) to eliminate cold-start on f
 ## Remaining Work
 
 - Acquire 4 WAV files for `backend/demo/audio/` (team-recorded or TTS)
-- Frontend (React/Vite/Tailwind) — backend API is complete
+- Frontend (React/Vite/Tailwind) — implement WebRTC client per `backend/docs/SIGNALING.md`
 - GitHub Actions CI workflow
 - Run `make convert-stt` on Windows GPU server for Uzbek STT
 - Verify GPU memory budget with `nvidia-smi` during live call
 - Canonical compliance phrases from bank/legal team
 - Rate limiting middleware (config vars added, implementation pending)
+- Test WebRTC path end-to-end with a real browser once frontend is built
