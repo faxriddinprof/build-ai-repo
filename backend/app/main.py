@@ -9,6 +9,8 @@ from app.database import AsyncSessionLocal
 from app.logging_config import RequestIdMiddleware, setup_logging
 from app.routers import auth, admin_users, calls
 from app.routers.audio_ws import router as audio_ws_router
+from app.routers.supervisor_ws import router as supervisor_ws_router
+from app.routers.admin_documents import router as admin_documents_router
 
 setup_logging(settings.LOG_LEVEL)
 log = structlog.get_logger()
@@ -17,10 +19,20 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services import stt_service, llm_service
+    from app.services.compliance_service import load_phrases
+    load_phrases()
     log.info("startup.begin")
     stt_service.load_model()
     await stt_service.warmup()
     await llm_service.warmup()
+    # Embed warmup
+    try:
+        from app.services.rag_service import embed
+        vec = await embed("salom")
+        assert len(vec) == settings.EMBEDDING_DIM, f"embedding dim mismatch: {len(vec)}"
+        log.info("startup.embed_warmup_done", dim=len(vec))
+    except Exception as e:
+        log.warning("startup.embed_warmup_failed", error=str(e))
     log.info("startup.done")
     yield
 
@@ -38,8 +50,10 @@ app.add_middleware(RequestIdMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
+app.include_router(admin_documents_router, prefix="/api/admin", tags=["admin"])
 app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
 app.include_router(audio_ws_router, tags=["websocket"])
+app.include_router(supervisor_ws_router, tags=["websocket"])
 
 
 @app.get("/healthz")
