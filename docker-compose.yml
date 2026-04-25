@@ -18,7 +18,7 @@ services:
   ollama:
     image: ollama/ollama
     volumes:
-      - ollama_data:/root/.ollama
+      - ./static/media/models:/root/.ollama
     ports:
       - "11434:11434"
     deploy:
@@ -84,4 +84,3 @@ services:
 
 volumes:
   postgres_data:
-  ollama_data:

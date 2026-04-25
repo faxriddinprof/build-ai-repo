@@ -8,7 +8,7 @@ Real-time AI sales copilot for bank call center agents in Uzbekistan. Listens to
 
 Three roles: `agent`, `supervisor`, `admin`. Single bank instance, JWT auth.
 
-**Current status:** Backend Phases 0–4 complete. 59/59 tests passing. Frontend not started.
+**Current status:** Backend Phases 0–4 complete + Hybrid RAG upgrade done. 68/68 tests passing. Frontend not started.
 
 ## Architecture
 
@@ -22,13 +22,13 @@ audio_ws.py
   ├── sentiment_service (keyword score + LLM tone)
   ├── extraction_service (LLM → JSON intake, auto at 60 s)
   ├── guardrail_service (BANK_TOPICS keyword filter)
-  ├── rag_service (nomic-embed → pgvector cosine search)
+  ├── rag_service (BGE-M3 dense + BM25s sparse → RRF → top-5)
   └── llm_service (Qwen3-8B via LiteLLM, streaming)
         └── event_bus → WS /ws/supervisor?token=<jwt>
 
 Admin
   POST /api/admin/documents
-    └── ingest_service (PyMuPDF → chunks → embed → pgvector)
+    └── ingest_service (PyMuPDF → chunks → embed → pgvector + BM25 rebuild)
 ```
 
 **Key invariants:**
@@ -43,10 +43,12 @@ Admin
 | Backend | FastAPI (Python 3.11), uvicorn `--workers 1` |
 | ORM | SQLAlchemy 2.x async + Alembic |
 | DB driver | asyncpg |
-| Vector store | PostgreSQL 16 + pgvector |
+| Vector store | PostgreSQL 16 + pgvector (ivfflat, cosine) |
 | STT | faster-whisper large-v3 (CUDA float16) |
 | LLM | Qwen3-8B Q4_K_M via Ollama → LiteLLM proxy |
-| Embeddings | nomic-embed-text (768-dim) via Ollama |
+| Dense embeddings | BGE-M3 (1024-dim) via Ollama |
+| Sparse retrieval | BM25s (in-process, disk-persisted in `uploads/bm25_index/`) |
+| Retrieval fusion | Reciprocal Rank Fusion (k=60) |
 | PDF | PyMuPDF (fitz) |
 | Auth | python-jose HS256, passlib bcrypt==3.2.2 |
 | Fuzzy match | rapidfuzz (compliance, 0.85 threshold) |
@@ -56,36 +58,38 @@ Admin
 ## Development Commands
 
 ```bash
-# Start infrastructure
-docker compose up postgres ollama litellm -d
+# Start infrastructure (postgres + ollama + litellm)
+make infra
+
+# Pull Ollama models into static/media/models/ (once, ~6 GB)
+make models-pull
+
+# Full first-time setup: infra → wait → migrate → seed
+make setup
 
 # Full stack
 docker compose up
 
 # Migrations
-cd backend && alembic upgrade head
+make migrate
+# or: docker compose exec api alembic upgrade head
 
-# Seed admin
-cd backend && python scripts/seed_admin.py
+# Tests (postgres must be running on :5432)
+make test           # 68 passed
+make test-v         # verbose
+make test-file F=tests/test_rag.py
 
-# Pull Ollama models (once)
-ollama pull qwen3:8b-q4_K_M
-ollama pull nomic-embed-text
-
-# Tests (postgres must be running)
-cd backend && pytest
-cd backend && pytest tests/test_auth.py -v
-
-# Health
-curl http://localhost:8000/healthz
-# → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
+# Health / quick checks
+make health         # GET /healthz
+make login          # POST /api/auth/login → prints token JSON
+make ollama-models  # list pulled models
 ```
 
 ## Backend Structure (`backend/`)
 
 ```
 app/
-├── main.py              # FastAPI entry + lifespan (model warmup, phrase load)
+├── main.py              # FastAPI entry + lifespan (model warmup, phrase load, bm25 init)
 ├── config.py            # Pydantic Settings from .env
 ├── database.py          # async engine + session factory
 ├── deps.py              # get_db, get_current_user, require_role(*roles)
@@ -95,7 +99,7 @@ app/
 ├── routers/
 │   ├── auth.py          # /api/auth/login|refresh|me
 │   ├── admin_users.py   # /api/admin/users CRUD
-│   ├── admin_documents.py  # /api/admin/documents CRUD + reindex
+│   ├── admin_documents.py  # /api/admin/documents CRUD + reindex; triggers BM25 rebuild on delete
 │   ├── calls.py         # /api/calls CRUD + intake PATCH + end POST
 │   ├── demo.py          # /api/demo/scenarios|play
 │   ├── audio_ws.py      # WS /ws/audio (agent stream)
@@ -105,8 +109,9 @@ app/
 │   ├── stt_service.py   # faster-whisper singleton, transcribe_chunk
 │   ├── guardrail_service.py  # is_bank_related (BANK_TOPICS keyword set)
 │   ├── llm_service.py   # chat(), get_suggestion() streaming, _looks_uzbek
-│   ├── rag_service.py   # embed(), search(), build_context()
-│   ├── ingest_service.py  # ingest_pdf() → chunk → embed → pgvector
+│   ├── rag_service.py   # embed(), _dense_search(), _rrf(), search(), build_context()
+│   ├── bm25_service.py  # BM25s sparse retrieval; load_or_init(), rebuild_from_db(), search()
+│   ├── ingest_service.py  # ingest_pdf() → chunk → embed → pgvector; triggers BM25 rebuild
 │   ├── extraction_service.py  # extract() → confidence-gated intake JSON
 │   ├── summary_service.py     # summarize() → post-call JSON
 │   ├── compliance_service.py  # check_chunk() rapidfuzz, per-call state
@@ -114,7 +119,7 @@ app/
 │   ├── event_bus.py     # asyncio.Queue pub/sub for supervisor fan-out
 │   └── demo_service.py  # play_scenario() WAV → 100 ms audio_chunk stream
 ├── prompts/
-│   ├── system_uz.py     # SYSTEM_PROMPT + SUGGESTION_TEMPLATE
+│   ├── system_uz.py     # SYSTEM_PROMPT + SUGGESTION_TEMPLATE (rules in EN, output must be UZ)
 │   ├── extraction_uz.py # EXTRACTION_PROMPT (JSON intake)
 │   └── summary_uz.py    # SUMMARY_PROMPT (post-call outcome)
 ├── utils/
@@ -125,10 +130,24 @@ app/
 demo/
 ├── scenarios.json        # 4 hackathon demo scenarios
 └── audio/                # WAV files (not committed — acquire separately)
-uploads/                  # volume-mounted PDFs (gitignored)
-tests/                    # 59 tests, all passing
-alembic/versions/         # 0001_pgvector, 0002_init_schema
+uploads/                  # volume-mounted PDFs + BM25 on-disk index (gitignored)
+tests/                    # 68 tests, all passing
+alembic/versions/         # 0001_pgvector, 0002_init_schema, 0003_bge_m3_1024
 ```
+
+## Hybrid RAG Pipeline
+
+```
+Query
+  ├── BGE-M3 embed → pgvector cosine → top-20 dense hits
+  └── BM25s tokenize → disk index → top-20 sparse hits
+        ↓
+  Reciprocal Rank Fusion (k=60): score = Σ 1/(k + rank)
+        ↓
+  Top-5 chunks → build_context() → LLM prompt
+```
+
+BM25 index is rebuilt automatically after every PDF ingest or delete. At startup, `bm25_service.load_or_init()` loads from `uploads/bm25_index/` or rebuilds from DB if missing.
 
 ## WebSocket Protocol
 
@@ -140,23 +159,30 @@ JWT via `?token=` query param (browser WS can't set headers).
 
 **`/ws/supervisor` outbound:** same events minus `customer_passport` (server-side scrub)
 
-Backpressure: `deque(maxlen=50)` — oldest `transcript` events dropped when full. `suggestion` and `intake_proposal` sent with `priority=True` (bypass queue, direct send).
+Backpressure: `deque(maxlen=50)` — oldest `transcript` events dropped when full. `suggestion` and `intake_proposal` bypass queue (direct send).
 
 ## Key Configuration (`.env`)
 
 ```env
-JWT_SECRET=          # required
-DATABASE_URL=        # defaults to postgres container
-LITELLM_BASE_URL=    # defaults to litellm container
-LLM_MODEL=           # ollama/qwen3:8b-q4_K_M
-EMBEDDING_MODEL=     # ollama/nomic-embed-text
-EMBEDDING_DIM=768
+JWT_SECRET=             # required
+DATABASE_URL=           # defaults to postgres container
+LITELLM_BASE_URL=       # defaults to litellm container
+LLM_MODEL=              # ollama/qwen3:8b-q4_K_M
+EMBEDDING_MODEL=        # ollama/bge-m3
+EMBEDDING_DIM=1024
 RAG_TOP_K=5
+RAG_DENSE_CANDIDATES=20
+RAG_SPARSE_CANDIDATES=20
+RRF_K=60
 EXTRACTION_WINDOW_SECONDS=60
 EXTRACTION_CONFIDENCE_THRESHOLD=0.8
 MAX_PDF_SIZE_MB=50
 COMPLIANCE_PHRASES_PATH=/app/app/data/compliance_phrases.json
 ```
+
+## Model Storage
+
+Ollama models are stored in `static/media/models/` (bind-mounted to `/root/.ollama` inside the ollama container). They persist across container rebuilds. Pull once with `make models-pull`.
 
 ## GPU Budget
 
@@ -174,3 +200,4 @@ Both warmed in `main.py` lifespan (dummy inference) to eliminate cold-start on f
 - Frontend (React/Vite/Tailwind) — backend API is complete
 - GitHub Actions CI workflow
 - Verify GPU memory budget with `nvidia-smi` during live call
+- Canonical compliance phrases from bank/legal team

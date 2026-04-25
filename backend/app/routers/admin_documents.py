@@ -97,6 +97,9 @@ async def delete_document(
     await db.commit()
     log.info("admin.document.deleted", document_id=document_id)
 
+    from app.services.bm25_service import rebuild_from_db
+    await rebuild_from_db()
+
 
 @router.post("/documents/{document_id}/reindex", response_model=DocumentResponse)
 async def reindex_document(

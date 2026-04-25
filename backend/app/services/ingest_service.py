@@ -118,6 +118,9 @@ async def ingest_pdf(document_id: str, file_path: Path) -> None:
 
         log.info("ingest.done", document_id=document_id, chunks=len(chunk_records))
 
+        from app.services.bm25_service import rebuild_from_db
+        await rebuild_from_db()
+
     except Exception as e:
         log.error("ingest.error", document_id=document_id, error=str(e))
         async with AsyncSessionLocal() as db:

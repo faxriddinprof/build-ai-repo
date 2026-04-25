@@ -98,7 +98,7 @@ The hot path. Runs on every `audio_chunk` WebSocket message.
 │  build_context(transcript_tail, top_k=5)                        │
 │                                                                 │
 │  1. embed(text) → LiteLLM aembedding                           │
-│     Model: nomic-embed-text, 768-dim vector                     │
+│     Model: bge-m3, 768-dim vector                     │
 │                                                                 │
 │  2. pgvector cosine search:                                     │
 │     SELECT content FROM document_chunks                         │
@@ -166,7 +166,7 @@ Query: "Kredit foizi qancha?"
            │
            ▼
   ┌─────────────────────┐
-  │  nomic-embed-text   │  LiteLLM aembedding endpoint
+  │  bge-m3   │  LiteLLM aembedding endpoint
   │  → vector[768]      │  http://litellm:4000/v1/embeddings
   └──────────┬──────────┘
              │ [0.12, -0.34, 0.89, ..., 0.01]  (768 floats)
@@ -481,7 +481,7 @@ ingest_service.ingest_pdf(document_id, file_path):
   │  Batch embedding (32 chunks per API call)    │
   │  rag_service.embed(chunk_text)               │
   │  → LiteLLM aembedding                       │
-  │  → nomic-embed-text, 768-dim float vector    │
+  │  → bge-m3, 768-dim float vector    │
   └──────────────────────┬───────────────────────┘
                          │ (chunk, vector) pairs
                          ▼

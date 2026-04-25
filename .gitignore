@@ -14,9 +14,15 @@ env/
 .env
 *.env.local
 
+# Ollama model weights (stored locally, not committed)
+static/media/models/*
+!static/media/models/.gitkeep
+
 # Uploads (volume mounted)
 backend/uploads/*
 !backend/uploads/.gitkeep
+# BM25s on-disk index (rebuilt at runtime)
+backend/uploads/bm25_index/
 
 # Demo audio (large WAVs)
 backend/demo/audio/*

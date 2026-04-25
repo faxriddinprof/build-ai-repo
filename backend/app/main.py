@@ -36,6 +36,11 @@ async def lifespan(app: FastAPI):
         log.info("startup.embed_warmup_done", dim=len(vec))
     except Exception as e:
         log.warning("startup.embed_warmup_failed", error=str(e))
+    try:
+        from app.services.bm25_service import load_or_init
+        await load_or_init()
+    except Exception as e:
+        log.warning("startup.bm25_init_failed", error=str(e))
     _models_loaded = True
     log.info("startup.done")
     yield

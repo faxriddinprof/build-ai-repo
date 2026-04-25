@@ -1,100 +1,106 @@
 # Quick Start
 
-AI Sales Assistant — on-premise backend for bank call center agents in Uzbekistan.
+AI Sales Copilot — on-premise backend for bank call center agents in Uzbekistan.
 Runs entirely locally on a single GPU host. No external API calls.
 
 ## Prerequisites
 
-- Docker + Docker Compose (with NVIDIA Container Toolkit)
-- NVIDIA GPU with ≥8 GB VRAM (tested on RTX 5070 Ti 16 GB)
-- Ollama installed locally (for one-time model pull)
+- Docker + Docker Compose
+- NVIDIA GPU ≥8 GB VRAM (tested on RTX 5070 Ti 16 GB)
+- Windows: Docker Desktop with WSL2 backend + NVIDIA driver 531.14+
+- Linux: NVIDIA Container Toolkit (`nvidia-container-toolkit`)
 
-## 1. Pull Ollama models (once)
-
-```bash
-ollama pull qwen3:8b-q4_K_M
-ollama pull nomic-embed-text
-```
-
-These download ~5 GB and ~270 MB respectively. Required before first `docker compose up`.
-
-## 2. Configure environment
+## 1. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` — minimum required:
+Edit `.env` — only one field is required:
 
 ```env
 JWT_SECRET=your-strong-random-secret-here
 ```
 
-Everything else has working defaults for local development.
+Everything else has working defaults for local Docker.
 
-## 3. Start infrastructure
-
-```bash
-docker compose up postgres ollama litellm -d
-```
-
-Wait until all three are healthy:
+## 2. Start infrastructure + pull models
 
 ```bash
-docker compose ps   # all should show "healthy"
-curl http://localhost:4000/health   # → {"status": "healthy"}
+# Start postgres, ollama, litellm
+make infra
+
+# Pull models into static/media/models/ (≈6 GB total, runs once)
+make models-pull
 ```
 
-## 4. Run migrations + seed admin
+`models-pull` downloads:
+- `qwen3:8b-q4_K_M` — LLM inference (~5 GB)
+- `bge-m3` — multilingual embeddings, 1024-dim (~1.2 GB)
+
+Models are stored in `static/media/models/` (bind-mounted into the ollama container). They survive container rebuilds.
+
+Wait until all three services are healthy:
 
 ```bash
-docker compose exec api alembic upgrade head
-docker compose exec api python scripts/seed_admin.py
+make ps   # all should show "healthy"
 ```
 
-Default admin credentials (set in `.env`):
+## 3. Run migrations + seed admin
+
+```bash
+make migrate
+make seed
+```
+
+Default admin credentials (override in `.env`):
 
 ```
 ADMIN_EMAIL=admin@bank.local
 ADMIN_PASSWORD=changeme
 ```
 
-## 5. Start the API
+Or run everything at once:
+
+```bash
+make setup   # infra → wait 15 s → migrate → seed
+```
+
+## 4. Start the API
 
 ```bash
 docker compose up api
 ```
 
-Startup takes ~30 s while faster-whisper + Qwen3 warm up. Watch for:
+Startup takes ~30 s while faster-whisper and Qwen3 warm up. BM25 index loads from disk (or rebuilds from DB if missing). Watch for:
 
 ```
 startup.done
 ```
 
-## 6. Verify
+## 5. Verify
 
 ```bash
-# Health check
-curl http://localhost:8000/healthz
+make health
 # → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
 
-# Login
-TOKEN=$(curl -sX POST http://localhost:8000/api/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"admin@bank.local","password":"changeme"}' | jq -r .access_token)
-
-# Identity
-curl http://localhost:8000/api/auth/me -H "Authorization: Bearer $TOKEN"
+make login
+# → {"access_token":"...","refresh_token":"...","role":"admin"}
 ```
 
-## 7. Run tests
+## 6. Run tests
+
+Postgres must be running on `:5432`:
 
 ```bash
-cd backend
-DATABASE_URL=postgresql+asyncpg://sales:sales@localhost:5432/sales_test \
-JWT_SECRET=test_secret \
-pytest -v
-# 59 passed
+make test
+# 68 passed
+```
+
+Single file:
+
+```bash
+make test-file F=tests/test_rag.py
 ```
 
 ## Full stack
@@ -107,26 +113,25 @@ Brings up postgres, ollama, litellm, and api together.
 
 ## API surface
 
-| Prefix | Purpose |
-|--------|---------|
+| Endpoint | Purpose |
+|----------|---------|
 | `POST /api/auth/login` | Get JWT tokens |
-| `GET /api/auth/me` | Current user |
-| `GET /api/admin/users` | List users (admin) |
+| `GET  /api/auth/me` | Current user |
+| `GET  /api/admin/users` | List users (admin) |
 | `POST /api/admin/documents` | Upload PDF for RAG (admin) |
-| `GET /api/calls` | Call history |
-| `GET /api/demo/scenarios` | List demo scenarios |
+| `GET  /api/calls` | Call history |
+| `GET  /api/demo/scenarios` | List demo scenarios |
 | `POST /api/demo/play` | Play a demo WAV scenario |
-| `WS /ws/audio?token=` | Agent audio stream |
-| `WS /ws/supervisor?token=` | Supervisor live feed |
-| `GET /healthz` | Readiness probe |
+| `WS   /ws/audio?token=` | Agent audio stream |
+| `WS   /ws/supervisor?token=` | Supervisor live feed |
+| `GET  /healthz` | Readiness probe |
 
-## WebSocket quick smoke test
+## WebSocket smoke test
 
 ```bash
-# Install wscat
 npm install -g wscat
 
-# Get agent token first (create an agent user via admin API)
+# Get agent token (create agent user via admin API first)
 wscat -c "ws://localhost:8000/ws/audio?token=$AGENT_TOKEN"
 
 # Send:
@@ -135,16 +140,30 @@ wscat -c "ws://localhost:8000/ws/audio?token=$AGENT_TOKEN"
 {"type":"end_call"}
 ```
 
-Expected outbound events: `transcript` → `suggestion` (if bank-related) → `summary_ready`.
+Expected outbound: `transcript` → `suggestion` (if bank-related) → `summary_ready`.
+
+## PDF ingestion (RAG)
+
+```bash
+TOKEN=$(make login | python3 -m json.tool | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -sX POST http://localhost:8000/api/admin/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@sample.pdf" -F "tag=product" | python3 -m json.tool
+
+# Poll until status=ready
+curl http://localhost:8000/api/admin/documents -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+```
+
+After ingestion, BM25 index auto-rebuilds. Subsequent suggestions use hybrid retrieval (dense + sparse → RRF).
 
 ## Demo scenarios
 
-Requires WAV files in `backend/demo/audio/`. See `backend/demo/scenarios.json` for filenames.
-Once WAVs are placed, trigger via:
+Requires WAV files in `backend/demo/audio/`. See `backend/demo/scenarios.json` for filenames. Once placed:
 
 ```bash
 curl -sX POST http://localhost:8000/api/demo/play \
   -H "Authorization: Bearer $TOKEN" \
-  -H 'content-type: application/json' \
+  -H 'Content-Type: application/json' \
   -d '{"call_id":"test-call-1","scenario_id":"objection_expensive"}'
 ```

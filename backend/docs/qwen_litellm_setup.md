@@ -18,7 +18,7 @@ Ollama  :11434  (Docker container, GPU passthrough)
     │  serves model from WSL2 GPU
     ▼
 qwen3:8b-q4_K_M  (~5 GB VRAM, Q4_K_M quantized)
-nomic-embed-text (~0.3 GB VRAM, 768-dim embeddings)
+nomic-embed-text-v2-moe (~0.3 GB VRAM, 768-dim embeddings)
 ```
 
 On Windows, Docker Desktop uses WSL2 as the backend. GPU passthrough to containers
@@ -68,7 +68,7 @@ After install, Ollama runs as a background service. Open PowerShell:
 
 ```powershell
 ollama pull qwen3:8b-q4_K_M
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text-v2-moe
 ```
 
 Verify:
@@ -76,7 +76,7 @@ Verify:
 ollama list
 # NAME                     ID              SIZE    MODIFIED
 # qwen3:8b-q4_K_M         ...             4.9 GB  ...
-# nomic-embed-text         ...             274 MB  ...
+# nomic-embed-text-v2-moe         ...             274 MB  ...
 ```
 
 When using Option A, the `ollama` service in `docker-compose.yml` is **not needed** —
@@ -95,7 +95,7 @@ docker compose up ollama -d
 
 # Wait ~30s for container to start, then pull models inside it:
 docker compose exec ollama ollama pull qwen3:8b-q4_K_M
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull nomic-embed-text-v2-moe
 ```
 
 Models persist in the `ollama_data` Docker volume across restarts.
@@ -123,9 +123,9 @@ model_list:
       api_base: http://ollama:11434          # Option B: ollama in Docker
       # api_base: http://host.docker.internal:11434  # Option A: ollama on host
 
-  - model_name: ollama/nomic-embed-text
+  - model_name: ollama/nomic-embed-text-v2-moe
     litellm_params:
-      model: ollama/nomic-embed-text
+      model: ollama/nomic-embed-text-v2-moe
       api_base: http://ollama:11434          # same as above
 
 general_settings:
@@ -163,7 +163,7 @@ JWT_SECRET=your-strong-random-secret-here
 LITELLM_BASE_URL=http://litellm:4000
 
 LLM_MODEL=ollama/qwen3:8b-q4_K_M
-EMBEDDING_MODEL=ollama/nomic-embed-text
+EMBEDDING_MODEL=ollama/nomic-embed-text-v2-moe
 EMBEDDING_DIM=768
 LLM_TIMEOUT_SECONDS=5
 ```
@@ -190,7 +190,7 @@ curl.exe -X POST http://localhost:4000/v1/chat/completions `
   -d $body
 
 # 5. Test embedding (check vector length = 768)
-$emb = '{"model":"ollama/nomic-embed-text","input":["kredit foizi"]}'
+$emb = '{"model":"ollama/nomic-embed-text-v2-moe","input":["kredit foizi"]}'
 curl.exe -X POST http://localhost:4000/v1/embeddings `
   -H "Content-Type: application/json" `
   -H "Authorization: Bearer sk-litellm-local" `

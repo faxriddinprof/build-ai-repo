@@ -43,7 +43,7 @@ env:            ## Copy .env.example → .env (skip if exists)
 
 models-pull:    ## Pull Ollama models into the running ollama container
 	$(COMPOSE) exec ollama ollama pull qwen3:8b-q4_K_M
-	$(COMPOSE) exec ollama ollama pull nomic-embed-text
+	$(COMPOSE) exec ollama ollama pull bge-m3
 
 migrate:        ## Run Alembic migrations (postgres must be healthy)
 	$(COMPOSE) exec $(API_SVC) alembic upgrade head

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     LITELLM_BASE_URL: str = "http://litellm:4000"
     LLM_MODEL: str = "ollama/qwen3:8b-q4_K_M"
-    EMBEDDING_MODEL: str = "ollama/nomic-embed-text"
+    EMBEDDING_MODEL: str = "ollama/bge-m3"
     LLM_MAX_TOKENS_SUGGESTION: int = 100
     LLM_MAX_TOKENS_EXTRACTION: int = 200
     LLM_MAX_TOKENS_SUMMARY: int = 400
@@ -32,7 +32,10 @@ class Settings(BaseSettings):
     CHUNK_SIZE_TOKENS: int = 500
     CHUNK_OVERLAP_TOKENS: int = 50
     RAG_TOP_K: int = 5
-    EMBEDDING_DIM: int = 768
+    RAG_DENSE_CANDIDATES: int = 20
+    RAG_SPARSE_CANDIDATES: int = 20
+    RRF_K: int = 60
+    EMBEDDING_DIM: int = 1024
 
     EXTRACTION_WINDOW_SECONDS: int = 60
     EXTRACTION_CONFIDENCE_THRESHOLD: float = 0.8

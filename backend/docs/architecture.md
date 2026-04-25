@@ -50,7 +50,7 @@ docker-compose.yml
 │   Exposes: 11434
 │   Models loaded at runtime (pull once):
 │     qwen3:8b-q4_K_M    ~5 GB VRAM
-│     nomic-embed-text   ~0.3 GB VRAM
+│     bge-m3   ~0.3 GB VRAM
 │
 ├── litellm  (ghcr.io/berriai/litellm:main-latest)
 │   Config: ./litellm_config.yaml (read-only mount)
