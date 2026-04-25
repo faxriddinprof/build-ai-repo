@@ -1,46 +1,71 @@
-import os
 from pathlib import Path
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.admin.auth import get_admin_basic
 from app.config import settings
-from app.deps import get_db, require_role
+from app.deps import get_db
 from app.models.document import Document, DocumentChunk
 from app.models.user import User
-from app.schemas.document import DocumentResponse
 
-router = APIRouter()
+router = APIRouter(prefix="/admin")
 log = structlog.get_logger()
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 _ALLOWED_EXTENSIONS = {".pdf", ".txt"}
 
 
-@router.post("/documents", response_model=DocumentResponse, status_code=202)
-async def upload_document(
+@router.get("", response_class=HTMLResponse)
+async def dashboard(
+    request: Request,
+    msg: Optional[str] = None,
+    err: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_admin_basic),
+):
+    result = await db.execute(select(Document).order_by(Document.uploaded_at.desc()))
+    documents = result.scalars().all()
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "admin": admin, "documents": documents, "msg": msg, "err": err},
+    )
+
+
+@router.post("/upload")
+async def upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     tag: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_role("admin")),
+    admin: User = Depends(get_admin_basic),
 ):
     max_bytes = settings.MAX_PDF_SIZE_MB * 1024 * 1024
     content = await file.read()
+
     if len(content) > max_bytes:
-        raise HTTPException(status_code=400, detail=f"File exceeds {settings.MAX_PDF_SIZE_MB} MB limit")
+        return RedirectResponse(
+            f"/admin?err=File+exceeds+{settings.MAX_PDF_SIZE_MB}+MB+limit",
+            status_code=303,
+        )
+
     ext = Path(file.filename).suffix.lower()
     if ext not in _ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Only PDF or TXT files are accepted")
+        return RedirectResponse("/admin?err=Only+PDF+or+TXT+files+are+accepted", status_code=303)
 
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     doc = Document(
         filename=file.filename,
-        tag=tag,
+        tag=tag or None,
         status="indexing",
         uploaded_by=admin.id,
     )
@@ -54,75 +79,55 @@ async def upload_document(
     from app.services.ingest_service import ingest_document
     background_tasks.add_task(ingest_document, doc.id, file_path)
 
-    log.info("admin.document.uploaded", document_id=doc.id, filename=file.filename)
-    return doc
+    log.info("admin.panel.upload", document_id=doc.id, filename=file.filename)
+    safe_name = file.filename.replace(" ", "+")
+    return RedirectResponse(f"/admin?msg=Uploaded+{safe_name}", status_code=303)
 
 
-@router.get("/documents", response_model=list[DocumentResponse])
-async def list_documents(
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_role("admin")),
-):
-    result = await db.execute(select(Document).order_by(Document.uploaded_at.desc()))
-    return result.scalars().all()
-
-
-@router.get("/documents/{document_id}", response_model=DocumentResponse)
-async def get_document(
-    document_id: str,
-    db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_role("admin")),
-):
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalar_one_or_none()
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return doc
-
-
-@router.delete("/documents/{document_id}", status_code=204)
+@router.post("/documents/{document_id}/delete")
 async def delete_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_role("admin")),
+    admin: User = Depends(get_admin_basic),
 ):
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        return RedirectResponse("/admin?err=Document+not+found", status_code=303)
 
-    # Delete file from disk
     ext = Path(doc.filename).suffix.lower()
     file_path = Path(settings.UPLOAD_DIR) / f"{document_id}{ext}"
     if file_path.exists():
         file_path.unlink()
 
+    filename = doc.filename
     await db.delete(doc)
     await db.commit()
-    log.info("admin.document.deleted", document_id=document_id)
+    log.info("admin.panel.delete", document_id=document_id)
 
     from app.services.bm25_service import rebuild_from_db
     await rebuild_from_db()
 
+    return RedirectResponse(f"/admin?msg=Deleted+{filename}", status_code=303)
 
-@router.post("/documents/{document_id}/reindex", response_model=DocumentResponse)
+
+@router.post("/documents/{document_id}/reindex")
 async def reindex_document(
     document_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_role("admin")),
+    admin: User = Depends(get_admin_basic),
 ):
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        return RedirectResponse("/admin?err=Document+not+found", status_code=303)
 
     ext = Path(doc.filename).suffix.lower()
     file_path = Path(settings.UPLOAD_DIR) / f"{document_id}{ext}"
     if not file_path.exists():
-        raise HTTPException(status_code=400, detail="File not found on disk")
+        return RedirectResponse("/admin?err=File+not+found+on+disk", status_code=303)
 
-    # Delete existing chunks
     result2 = await db.execute(
         select(DocumentChunk).where(DocumentChunk.document_id == document_id)
     )
@@ -132,10 +137,9 @@ async def reindex_document(
     doc.status = "indexing"
     doc.error_message = None
     await db.commit()
-    await db.refresh(doc)
 
     from app.services.ingest_service import ingest_document
     background_tasks.add_task(ingest_document, document_id, file_path)
 
-    log.info("admin.document.reindex", document_id=document_id)
-    return doc
+    log.info("admin.panel.reindex", document_id=document_id)
+    return RedirectResponse(f"/admin?msg=Reindexing+{doc.filename}", status_code=303)

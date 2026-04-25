@@ -29,7 +29,7 @@ build:          ## Build/rebuild all containers
 	$(COMPOSE) build
 
 up:             ## Start full stack — all services (background, CPU mode)
-	$(COMPOSE) up --remove-orphans
+	$(COMPOSE) up --build --remove-orphans
 
 up-gpu:         ## Start full stack with NVIDIA GPU (Windows RTX server)
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml up -d

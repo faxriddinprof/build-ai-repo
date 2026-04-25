@@ -28,7 +28,6 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
         t = _count_tokens_approx(sentence)
         if current_tokens + t > chunk_size and current_parts:
             chunks.append(" ".join(current_parts))
-            # Keep overlap sentences
             overlap_tokens = 0
             overlap_parts: list[str] = []
             for s in reversed(current_parts):
@@ -47,9 +46,60 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return [c for c in chunks if c.strip()]
 
 
-async def ingest_pdf(document_id: str, file_path: Path) -> None:
+async def _persist_chunks(
+    document_id: str,
+    pages: list[tuple[int, str]],
+    page_count: int,
+) -> None:
+    """Shared embed + persist + BM25-rebuild pipeline for all ingest paths."""
     from app.services.rag_service import embed
     from app.models.document import Document, DocumentChunk
+    from sqlalchemy import select
+
+    all_chunks: list[dict] = []
+    for page_num, page_text in pages:
+        for chunk_text in _chunk_text(
+            page_text,
+            settings.CHUNK_SIZE_TOKENS,
+            settings.CHUNK_OVERLAP_TOKENS,
+        ):
+            all_chunks.append({"page": page_num, "text": chunk_text})
+
+    BATCH_SIZE = 32
+    chunk_records: list[DocumentChunk] = []
+
+    for i in range(0, len(all_chunks), BATCH_SIZE):
+        batch = all_chunks[i:i + BATCH_SIZE]
+        embeddings = await asyncio.gather(*[embed(c["text"]) for c in batch])
+        for j, (chunk_data, emb) in enumerate(zip(batch, embeddings)):
+            chunk_records.append(DocumentChunk(
+                document_id=document_id,
+                content=chunk_data["text"],
+                embedding=emb,
+                page_number=chunk_data["page"],
+                chunk_index=i + j,
+            ))
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Document).where(Document.id == document_id))
+        doc = result.scalar_one_or_none()
+        if doc is None:
+            return
+        db.add_all(chunk_records)
+        doc.page_count = page_count
+        doc.chunk_count = len(chunk_records)
+        doc.status = "ready"
+        await db.commit()
+
+    log.info("ingest.done", document_id=document_id, chunks=len(chunk_records))
+
+    from app.services.bm25_service import rebuild_from_db
+    await rebuild_from_db()
+
+
+async def ingest_document(document_id: str, file_path: Path) -> None:
+    """Dispatch to PDF or TXT ingest based on file extension."""
+    from app.models.document import Document
     from sqlalchemy import select
 
     async with AsyncSessionLocal() as db:
@@ -62,67 +112,36 @@ async def ingest_pdf(document_id: str, file_path: Path) -> None:
         await db.commit()
 
     try:
-        import fitz  # PyMuPDF
-        pdf = fitz.open(str(file_path))
-        page_count = len(pdf)
+        ext = file_path.suffix.lower()
 
-        # Extract all text
-        pages: list[tuple[int, str]] = []
-        for page_num in range(page_count):
-            text = pdf[page_num].get_text()
-            if text.strip():
-                pages.append((page_num + 1, text))
+        if ext == ".pdf":
+            import fitz  # PyMuPDF
+            pdf = fitz.open(str(file_path))
+            page_count = len(pdf)
+            pages: list[tuple[int, str]] = []
+            for page_num in range(page_count):
+                text = pdf[page_num].get_text()
+                if text.strip():
+                    pages.append((page_num + 1, text))
+            if not pages:
+                raise ValueError("no text extractable — OCR not supported in MVP")
 
-        if not pages:
-            raise ValueError("no text extractable — OCR not supported in MVP")
+        elif ext == ".txt":
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+            if not text.strip():
+                raise ValueError("TXT file is empty")
+            pages = [(1, text)]
+            page_count = 1
 
-        # Chunk all pages
-        all_chunks: list[dict] = []
-        for page_num, page_text in pages:
-            for chunk_text in _chunk_text(
-                page_text,
-                settings.CHUNK_SIZE_TOKENS,
-                settings.CHUNK_OVERLAP_TOKENS,
-            ):
-                all_chunks.append({"page": page_num, "text": chunk_text})
+        else:
+            raise ValueError(f"unsupported file type: {ext}")
 
-        # Batch embed (32 at a time)
-        BATCH_SIZE = 32
-        chunk_records: list[DocumentChunk] = []
-
-        for i in range(0, len(all_chunks), BATCH_SIZE):
-            batch = all_chunks[i:i + BATCH_SIZE]
-            embeddings = await asyncio.gather(
-                *[embed(c["text"]) for c in batch]
-            )
-            for j, (chunk_data, emb) in enumerate(zip(batch, embeddings)):
-                chunk_records.append(DocumentChunk(
-                    document_id=document_id,
-                    content=chunk_data["text"],
-                    embedding=emb,
-                    page_number=chunk_data["page"],
-                    chunk_index=i + j,
-                ))
-
-        # Persist
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Document).where(Document.id == document_id))
-            doc = result.scalar_one_or_none()
-            if doc is None:
-                return
-            db.add_all(chunk_records)
-            doc.page_count = page_count
-            doc.chunk_count = len(chunk_records)
-            doc.status = "ready"
-            await db.commit()
-
-        log.info("ingest.done", document_id=document_id, chunks=len(chunk_records))
-
-        from app.services.bm25_service import rebuild_from_db
-        await rebuild_from_db()
+        await _persist_chunks(document_id, pages, page_count)
 
     except Exception as e:
         log.error("ingest.error", document_id=document_id, error=str(e))
+        from app.models.document import Document
+        from sqlalchemy import select
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(Document).where(Document.id == document_id))
             doc = result.scalar_one_or_none()
@@ -130,3 +149,8 @@ async def ingest_pdf(document_id: str, file_path: Path) -> None:
                 doc.status = "error"
                 doc.error_message = str(e)[:500]
                 await db.commit()
+
+
+async def ingest_pdf(document_id: str, file_path: Path) -> None:
+    """Backward-compat alias for ingest_document."""
+    await ingest_document(document_id, file_path)

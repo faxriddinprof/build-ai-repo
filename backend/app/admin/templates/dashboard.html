@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if msg %}
+<div class="flash flash-ok">{{ msg }}</div>
+{% endif %}
+{% if err %}
+<div class="flash flash-err">{{ err }}</div>
+{% endif %}
+
+<section class="upload-section">
+  <h2>Upload Document</h2>
+  <form method="post" action="/admin/upload" enctype="multipart/form-data">
+    <div class="form-row">
+      <label for="file">File (PDF or TXT)</label>
+      <input id="file" type="file" name="file" accept=".pdf,.txt" required>
+    </div>
+    <div class="form-row">
+      <label for="tag">Tag</label>
+      <select id="tag" name="tag">
+        <option value="">— none —</option>
+        <option value="product">Product</option>
+        <option value="news">News</option>
+        <option value="credit">Credit</option>
+        <option value="script">Script</option>
+        <option value="compliance">Compliance</option>
+        <option value="faq">FAQ</option>
+      </select>
+    </div>
+    <button type="submit">Upload</button>
+  </form>
+</section>
+
+<section class="docs-section">
+  <h2>Documents <span class="count">({{ documents | length }})</span></h2>
+  {% if documents %}
+  <table>
+    <thead>
+      <tr>
+        <th>Filename</th>
+        <th>Tag</th>
+        <th>Status</th>
+        <th>Pages</th>
+        <th>Chunks</th>
+        <th>Uploaded</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr data-status="{{ doc.status }}">
+        <td>{{ doc.filename }}</td>
+        <td>{{ doc.tag or '—' }}</td>
+        <td>
+          <span class="status-badge status-{{ doc.status }}"
+            {% if doc.status == 'error' and doc.error_message %}
+            title="{{ doc.error_message }}"
+            {% endif %}>{{ doc.status }}</span>
+        </td>
+        <td>{{ doc.page_count if doc.page_count is not none else '—' }}</td>
+        <td>{{ doc.chunk_count if doc.chunk_count is not none else '—' }}</td>
+        <td>{{ doc.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="actions">
+          <form method="post" action="/admin/documents/{{ doc.id }}/reindex">
+            <button type="submit" class="btn-secondary">Reindex</button>
+          </form>
+          <form method="post" action="/admin/documents/{{ doc.id }}/delete" class="delete-form">
+            <button type="submit" class="btn-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No documents uploaded yet.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -3,6 +3,7 @@ import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
@@ -20,6 +21,7 @@ from app.routers.supervisor_ws import router as supervisor_ws_router
 from app.routers.admin_documents import router as admin_documents_router
 from app.routers.demo import router as demo_router
 from app.routers.transcribe import router as transcribe_router
+from app.admin.router import router as admin_panel_router
 
 setup_logging(settings.LOG_LEVEL)
 log = structlog.get_logger()
@@ -103,6 +105,10 @@ app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
 app.include_router(signaling_ws_router, tags=["websocket"])
 app.include_router(supervisor_ws_router, tags=["websocket"])
 app.include_router(transcribe_router, prefix="/api", tags=["transcribe"])
+app.include_router(admin_panel_router, tags=["admin-panel"])
+
+_admin_static_dir = str(__import__("pathlib").Path(__file__).parent / "admin" / "static")
+app.mount("/admin/static", StaticFiles(directory=_admin_static_dir), name="admin_static")
 
 
 @app.get("/healthz")
