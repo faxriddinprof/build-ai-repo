@@ -6,6 +6,6 @@ interface DemoModeState {
 }
 
 export const useDemoModeStore = create<DemoModeState>((set) => ({
-  enabled: true,
+  enabled: false,
   setEnabled: (enabled) => set({ enabled }),
 }))

@@ -15,11 +15,16 @@ export interface CustomerCallState {
 
 interface CustomerInitResponse {
   display_name: string
-  masked_phone: string
-  region: string
+  masked_phone: string | null
+  region: string | null
   ice_servers: RTCIceServer[]
-  customer_token: string
+  client_id: string
+}
+
+interface InitiateResponse {
   queue_id: string
+  customer_token: string
+  status: string
 }
 
 interface StatusResponse {
@@ -50,6 +55,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
   // Refs — no re-renders needed
   const customerTokenRef = useRef<string | null>(null)
   const iceServersRef = useRef<RTCIceServer[]>([{ urls: 'stun:stun.l.google.com:19302' }])
+  const clientInfoRef = useRef<{ maskedPhone: string | null; region: string | null; clientId: string } | null>(null)
 
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const dcRef = useRef<RTCDataChannel | null>(null)
@@ -232,13 +238,40 @@ export function useCustomerCall(clientId: string): CustomerCallState {
   )
 
   // ---------------------------------------------------------------------------
-  // start() — user tapped the button
+  // start() — user tapped the button: create queue entry then poll
   // ---------------------------------------------------------------------------
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (phase !== 'idle') return
 
     setPhase('ringing')
     startWaitTick()
+
+    // Create queue entry now (not on page load)
+    const info = clientInfoRef.current
+    if (!info) {
+      setPhase('error')
+      setError("Ma'lumot yuklanmadi")
+      return
+    }
+    try {
+      const res = await fetch('/api/customer/call/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          masked_phone: info.maskedPhone ?? 'N/A',
+          region: info.region,
+          client_id: info.clientId,
+        }),
+      })
+      if (!res.ok) throw new Error('Initiate failed')
+      const data = (await res.json()) as InitiateResponse
+      customerTokenRef.current = data.customer_token
+    } catch {
+      stopWaitTick()
+      setPhase('error')
+      setError("Navbatga qo'shib bo'lmadi")
+      return
+    }
 
     const token = customerTokenRef.current
     if (!token) {
@@ -302,7 +335,11 @@ export function useCustomerCall(clientId: string): CustomerCallState {
         const data = (await res.json()) as CustomerInitResponse
         if (cancelled) return
 
-        customerTokenRef.current = data.customer_token
+        clientInfoRef.current = {
+          maskedPhone: data.masked_phone,
+          region: data.region,
+          clientId: data.client_id,
+        }
         if (data.ice_servers?.length) iceServersRef.current = data.ice_servers
         setDisplayName(data.display_name ?? '')
         setMaskedPhone(data.masked_phone ?? null)

@@ -1,10 +1,11 @@
 """
 Public customer page endpoint.
 
-GET /customer/{client_id}/call
-- No JWT required.
-- Rate-limited: 10 req/min per IP.
-- Creates a fresh CallQueueEntry, issues a customer_token, returns display info.
+GET /api/customer/{client_id}/call
+- No JWT required. Rate-limited: 10 req/min per IP.
+- Returns display info only. Does NOT create a queue entry.
+  Queue entry is created when the customer clicks the call button
+  via POST /api/customer/call/initiate.
 """
 
 from typing import Optional
@@ -13,8 +14,6 @@ from app.config import settings
 from app.deps import get_db
 from app.middleware.rate_limit import limiter
 from app.models.client import Client
-from app.services import event_bus, queue_service
-from app.services.auth_service import create_customer_token
 from app.utils.text import mask_phone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -67,40 +66,14 @@ async def customer_call_page(
     last_initial = (client.last_name[0] + ".") if client.last_name else ""
     display_name = f"{client.first_name} {last_initial}".strip()
 
-    # Issue temp token, enqueue, re-issue with real queue_id
-    token, jti = create_customer_token("temp")
-    entry = await queue_service.enqueue(
-        db,
-        masked_phone=masked or "N/A",
-        region=region,
-        topic=None,
-        priority="normal",
-        customer_token_jti=jti,
-        client_id=client_id,
-    )
-    token, jti = create_customer_token(entry.id)
-    entry.customer_token_jti = jti
-    await db.commit()
-
-    await event_bus.publish(
-        "supervisor",
-        {
-            "type": "queue_added",
-            "queue_id": entry.id,
-            "masked_phone": masked,
-            "region": region,
-            "client_id": client_id,
-            "priority": "normal",
-        },
-    )
-
     ice_servers = [{"urls": url} for url in settings.STUN_SERVERS]
 
+    # Return display info only — queue entry is created when customer clicks
+    # the call button (POST /api/customer/call/initiate).
     return {
         "display_name": display_name,
         "masked_phone": masked,
         "region": region,
         "ice_servers": ice_servers,
-        "customer_token": token,
-        "queue_id": entry.id,
+        "client_id": client_id,
     }
