@@ -10,6 +10,7 @@ import { SentimentBadge } from '../components/primitives/Badge'
 import { TranscriptBubble } from '../components/call/TranscriptBubble'
 import { Icon } from '../components/Icon'
 import { useAuthStore } from '../store/authStore'
+import { useThemeStore } from '../store/themeStore'
 
 // ---------------------------------------------------------------------------
 // Active call card
@@ -411,6 +412,7 @@ export default function SupervisorPage() {
   const [drawerCallId, setDrawerCallId] = useState<string | null>(null)
   const { activeCalls, isLoading } = useSupervisorFeed()
   const logout = useAuthStore((s) => s.logout)
+  const { theme, setTheme } = useThemeStore()
 
   const handleCardClick = useCallback((id: string) => setDrawerCallId(id), [])
   const handleDrawerClose = useCallback(() => setDrawerCallId(null), [])
@@ -481,24 +483,42 @@ export default function SupervisorPage() {
           )}
         </div>
 
-        <button
-          onClick={logout}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--text-muted)',
-            fontSize: 13,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 10px',
-            borderRadius: 'var(--r-sm)',
-          }}
-        >
-          <Icon name="logout" size={16} />
-          Chiqish
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? "Yorug' rejim" : "Qorong'i rejim"}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              padding: 6,
+              borderRadius: 'var(--r-sm)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+          </button>
+          <button
+            onClick={logout}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              fontSize: 13,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 10px',
+              borderRadius: 'var(--r-sm)',
+            }}
+          >
+            <Icon name="logout" size={16} />
+            Chiqish
+          </button>
+        </div>
       </header>
 
       {/* Tab bar */}
