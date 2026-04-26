@@ -5,7 +5,8 @@
       "Bash(curl -s http://localhost:8000/healthz)",
       "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@bank.uz\",\"password\":\"changeme\"}')",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('role:', d['role']\\); print\\('token len:', len\\(d['access_token']\\)\\)\")",
-      "WebFetch(domain:)"
+      "WebFetch(domain:)",
+      "Bash(make clean-queue *)"
     ]
   }
 }

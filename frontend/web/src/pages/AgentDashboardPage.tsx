@@ -23,7 +23,6 @@ import { SuggestionCard } from '../components/call/SuggestionCard'
 import { IntakeCard } from '../components/call/IntakeCard'
 import { ComplianceChip } from '../components/call/ComplianceChip'
 import { QueueRail } from '../components/queue/QueueRail'
-import { IncomingCallModal } from '../components/queue/IncomingCallModal'
 import { PostCallSummary } from '../components/PostCallSummary'
 
 // ---------------------------------------------------------------------------
@@ -428,7 +427,15 @@ export default function AgentDashboardPage() {
         )}
 
         {/* Queue rail */}
-        {queueOpen && <QueueRail queue={queue} onToggle={() => setQueueOpen(false)} />}
+        {queueOpen && (
+          <QueueRail
+            queue={queue}
+            onToggle={() => setQueueOpen(false)}
+            onAccept={handleAccept}
+            onSkip={(queueId, reason, note) => void skip(queueId, reason, note)}
+            callActive={session.status === 'active'}
+          />
+        )}
 
         {/* Intake card floating */}
         {intakeVisible && session.intakeProposal && (
@@ -498,14 +505,6 @@ export default function AgentDashboardPage() {
       {/* ------------------------------------------------------------------ */}
       {/* Modals */}
       {/* ------------------------------------------------------------------ */}
-      {session.status === 'idle' && queue.length > 0 && (
-        <IncomingCallModal
-          queue={queue}
-          onAccept={handleAccept}
-          onSkip={(queueId, reason, note) => void skip(queueId, reason, note)}
-        />
-      )}
-
       {session.status === 'ended' && session.summary && (
         <PostCallSummary
           summary={session.summary}

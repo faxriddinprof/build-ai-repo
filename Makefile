@@ -69,6 +69,10 @@ seed-admin:     ## Create/update admin user only (legacy)
 seed-clients:   ## Seed 3 demo client profiles (Toshkent/Samarqand/Andijon)
 	$(COMPOSE) exec $(API_SVC) python scripts/seed_clients.py
 
+clean-queue:    ## Expire stale pending queue entries and close ghost active calls
+	$(COMPOSE) cp backend/scripts/clean_queue.py $(API_SVC):/app/scripts/clean_queue.py
+	$(COMPOSE) exec $(API_SVC) python scripts/clean_queue.py
+
 seed-clients-excel: ## Seed 5 clients from banking_client_database.xlsx
 	$(COMPOSE) cp banking_client_database.xlsx $(API_SVC):/app/uploads/banking_client_database.xlsx
 	$(COMPOSE) exec $(API_SVC) python scripts/seed_clients_excel.py
