@@ -10,6 +10,8 @@ from app.models.call import Call
 from app.models.user import User
 from app.services import call_pipeline
 from app.schemas.call import CallHistoryItem
+from app.utils.objections import top_objection_label
+from app.utils.text import format_uz_relative_datetime
 
 router = APIRouter(prefix="/api/supervisor")
 
@@ -25,26 +27,32 @@ async def active_calls(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("supervisor", "admin")),
 ):
-    """Snapshot of in-flight calls keyed by call_id — seeds supervisor dashboard before WS catches up."""
-    # In-process state from call_pipeline (same process, workers=1)
-    result = []
+    """Snapshot of in-flight calls — seeds supervisor dashboard before WS catches up."""
     now = datetime.utcnow()
     res = await db.execute(
-        select(Call).where(Call.ended_at.is_(None)).order_by(Call.started_at.desc())
+        select(Call, User.email)
+        .join(User, Call.agent_id == User.id)
+        .where(Call.ended_at.is_(None))
+        .order_by(Call.started_at.desc())
     )
-    calls = res.scalars().all()
-    for call in calls:
+    rows = res.all()
+    result = []
+    for call, agent_email in rows:
         state = call_pipeline._call_state.get(call.id, {})
         duration = int((now - call.started_at).total_seconds())
+        suggestion_count = state.get("suggestion_count", 0)
         result.append({
-            "call_id": call.id,
-            "agent_id": call.agent_id,
-            "customer_phone": call.customer_phone,
-            "customer_region": call.customer_region,
+            "id": call.id,
+            "name": agent_email.split("@")[0],
+            "agentId": call.agent_id,
+            "customerPhone": call.customer_phone,
+            "customerRegion": call.customer_region,
             "duration": duration,
             "sentiment": state.get("last_sentiment"),
-            "top_objection": state.get("objection_hits", [None])[-1] if state.get("objection_hits") else None,
-            "started_at": call.started_at.isoformat(),
+            "topObjection": top_objection_label(state),
+            "startedAt": call.started_at.isoformat(),
+            "active": True,
+            "isHero": suggestion_count >= 3,
         })
     return result
 
@@ -95,19 +103,17 @@ async def call_history(
         duration = 0
         if call.ended_at and call.started_at:
             duration = int((call.ended_at - call.started_at).total_seconds())
-        last_sentiment = None
-        if call.sentiment_journey:
-            last_sentiment = call.sentiment_journey[-1]
-        ended_at_str = call.ended_at.strftime("Bugun · %H:%M") if call.ended_at else None
+        last_sentiment = call.sentiment_journey[-1] if call.sentiment_journey else None
+        ended_at_str = format_uz_relative_datetime(call.ended_at) if call.ended_at else None
         items.append(CallHistoryItem(
             id=call.id,
             name=agent_email.split("@")[0],
-            agent_id=call.agent_id,
+            agentId=call.agent_id,
             duration=duration,
             sentiment=last_sentiment,
-            top_objection=call.top_objection,
-            ended_at=ended_at_str,
+            topObjection=call.top_objection,
+            endedAt=ended_at_str,
             outcome=call.outcome,
-            compliance_score=call.compliance_score,
+            complianceScore=call.compliance_score,
         ))
     return items

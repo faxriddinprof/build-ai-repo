@@ -87,10 +87,13 @@ async def create_peer_connection(user_id: str) -> "RTCPeerConnection":
                 from app.services import call_pipeline
                 call_id = msg.get("call_id") or str(uuid4())
                 lang_hint = msg.get("language_hint")
+                client_id = msg.get("client_id") or None
                 _active_dcs[call_id] = dc
                 if call_id not in _active_pcs:
                     _active_pcs[call_id] = pc
-                await call_pipeline.start_call(call_id, user_id)
+                await call_pipeline.start_call(
+                    call_id, user_id, lang_hint=lang_hint, client_id=client_id
+                )
                 dc.send(json.dumps({"type": "call_started", "call_id": call_id}))
                 log.info("webrtc.call_started", call_id=call_id, user_id=user_id)
 

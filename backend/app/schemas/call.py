@@ -45,10 +45,10 @@ class CallEndResponse(BaseModel):
 class CallHistoryItem(BaseModel):
     id: str
     name: str
-    agent_id: str
+    agentId: str
     duration: int
     sentiment: Optional[str] = None
-    top_objection: Optional[str] = None
-    ended_at: Optional[str] = None
+    topObjection: Optional[str] = None
+    endedAt: Optional[str] = None
     outcome: Optional[str] = None
-    compliance_score: Optional[int] = None
+    complianceScore: Optional[int] = None

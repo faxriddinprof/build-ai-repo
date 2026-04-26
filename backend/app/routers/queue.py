@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from app.deps import get_db, require_role
@@ -34,20 +35,23 @@ async def list_queue(
     entries_sorted = sorted(
         entries, key=lambda e: (_PRIORITY_SORT.get(e.priority, 2), e.queued_at)
     )
-    return [
-        {
+    now = datetime.utcnow()
+    result = []
+    for e in entries_sorted:
+        last_contact = await queue_service.last_contact_for(
+            db, e.masked_phone, getattr(e, "client_id", None)
+        )
+        result.append({
             "id": e.id,
-            "masked_phone": e.masked_phone,
+            "maskedPhone": e.masked_phone,
             "region": e.region,
             "topic": e.topic,
             "priority": e.priority,
-            "wait_time": int(
-                (__import__("datetime").datetime.utcnow() - e.queued_at).total_seconds()
-            ),
+            "waitTime": int((now - e.queued_at).total_seconds()),
             "status": e.status,
-        }
-        for e in entries_sorted
-    ]
+            "lastContact": last_contact,
+        })
+    return result
 
 
 @router.post("/{queue_id}/accept")
@@ -62,12 +66,25 @@ async def accept_call(
             status_code=404, detail="Queue entry not found or already accepted"
         )
 
-    # Create the Call row, propagate client_id from queue entry
+    # Derive customer_name from client profile when available
+    customer_name = None
+    client_id = getattr(entry, "client_id", None)
+    if client_id:
+        try:
+            from app.models.client import Client
+            cr = await db.execute(select(Client).where(Client.client_id == client_id))
+            client = cr.scalar_one_or_none()
+            if client:
+                customer_name = f"{client.first_name} {client.last_name}"
+        except Exception:
+            pass
+
     call = Call(
         agent_id=agent.id,
         customer_phone=entry.masked_phone,
         customer_region=entry.region,
-        client_id=getattr(entry, "client_id", None),
+        customer_name=customer_name,
+        client_id=client_id,
     )
     db.add(call)
     await db.commit()
@@ -77,16 +94,18 @@ async def accept_call(
         "supervisor",
         {
             "type": "queue_accepted",
-            "queue_id": queue_id,
-            "call_id": call.id,
-            "agent_id": agent.id,
+            "queueId": queue_id,
+            "callId": call.id,
+            "agentId": agent.id,
         },
     )
 
     return {
-        "call_id": call.id,
-        "queue_id": queue_id,
-        "masked_phone": entry.masked_phone,
+        "id": call.id,
+        "queueId": queue_id,
+        "maskedPhone": entry.masked_phone,
+        "customerName": customer_name,
+        "clientId": client_id,
     }
 
 
@@ -104,8 +123,8 @@ async def skip_call(
         "supervisor",
         {
             "type": "queue_skipped",
-            "queue_id": queue_id,
-            "agent_id": agent.id,
+            "queueId": queue_id,
+            "agentId": agent.id,
             "reason": body.reason,
         },
     )
@@ -114,7 +133,7 @@ async def skip_call(
             "skipped": queue_id,
             "next": {
                 "id": next_entry.id,
-                "masked_phone": next_entry.masked_phone,
+                "maskedPhone": next_entry.masked_phone,
                 "region": next_entry.region,
                 "topic": next_entry.topic,
                 "priority": next_entry.priority,

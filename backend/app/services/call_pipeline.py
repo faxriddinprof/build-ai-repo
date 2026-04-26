@@ -44,6 +44,14 @@ async def start_call(
     lang_hint: Optional[str] = None,
     client_id: Optional[str] = None,
 ) -> None:
+    # If client_id not explicitly passed, check if an existing Call row has one
+    if not client_id:
+        async with AsyncSessionLocal() as _pre_db:
+            _pre_res = await _pre_db.execute(select(Call).where(Call.id == call_id))
+            _pre_call = _pre_res.scalar_one_or_none()
+            if _pre_call and _pre_call.client_id:
+                client_id = _pre_call.client_id
+
     # Load client profile once at call start
     client_profile = None
     if client_id:
@@ -71,6 +79,7 @@ async def start_call(
         # Dual-LLM throttle state
         "last_recommendation_ts": 0.0,
         "turns_since_live_script": 0,
+        "suggestion_count": 0,
     }
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(Call).where(Call.id == call_id))
@@ -239,7 +248,7 @@ async def process_audio_chunk(
 
     # Match objection keyword for real trigger label (before RAG, no guardrail)
     objection_match = match_objection(text)
-    trigger_label = objection_match[1] if objection_match else text[:60]
+    trigger_label = objection_match[1] if objection_match else None
     if state and objection_match:
         state["objection_hits"].append(objection_match[1])
 
@@ -322,6 +331,8 @@ async def process_audio_chunk(
             "suggestion", call_id=call_id, text=bullets, trigger=trigger_label
         )
         events.append(suggestion_event)
+        if state:
+            state["suggestion_count"] = state.get("suggestion_count", 0) + 1
         try:
             async with AsyncSessionLocal() as db:
                 row = SuggestionLog(
@@ -459,12 +470,8 @@ async def finalize_call(call_id: str) -> dict:
     compliance_status = compliance_service.get_status(call_id)
 
     # Compute top_objection (most frequent hit, tie → first seen)
-    top_objection: Optional[str] = None
-    if objection_hits:
-        from collections import Counter
-
-        counts = Counter(objection_hits)
-        top_objection = counts.most_common(1)[0][0]
+    from app.utils.objections import top_objection_label
+    top_objection = top_objection_label(state)
 
     summary = {}
     try:

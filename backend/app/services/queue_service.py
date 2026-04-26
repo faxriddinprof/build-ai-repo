@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 from app.models.call_queue import CallQueueEntry, SkipLog
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
@@ -68,6 +68,7 @@ async def skip(
     entry = res.scalar_one_or_none()
     if entry is None:
         return None
+    entry.status = "skipped"
     db.add(SkipLog(queue_id=queue_id, agent_id=agent_id, reason=reason, note=note))
     await db.commit()
     # Return next pending entry
@@ -79,6 +80,32 @@ async def skip(
     return res2.scalars().first()
 
 
-def last_contact_for(masked_phone: str) -> dict:
-    # Stub — real implementation would query a customer history table
-    return {"days": None, "last_duration": None}
+async def last_contact_for(
+    db: AsyncSession,
+    masked_phone: str,
+    client_id: Optional[str] = None,
+) -> dict:
+    from app.models.call import Call
+
+    conditions = [Call.customer_phone == masked_phone]
+    if client_id:
+        conditions.append(Call.client_id == client_id)
+
+    res = await db.execute(
+        select(Call)
+        .where(or_(*conditions))
+        .where(Call.ended_at.isnot(None))
+        .order_by(Call.ended_at.desc())
+        .limit(1)
+    )
+    call = res.scalar_one_or_none()
+    if call is None:
+        return {"daysAgo": None, "durationSeconds": None}
+
+    days_ago = (datetime.utcnow() - call.ended_at).days
+    duration = (
+        int((call.ended_at - call.started_at).total_seconds())
+        if call.started_at and call.ended_at
+        else None
+    )
+    return {"daysAgo": days_ago, "durationSeconds": duration}

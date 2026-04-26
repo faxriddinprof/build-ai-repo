@@ -81,3 +81,5 @@ Layout: 3-zone — top bar, main 2-column body, bottom compliance bar.
 Confident, calm, AI-native. The design should make a bank agent feel **augmented, not surveilled** — and make a hackathon judge feel "this is shippable."
 
 
+
+

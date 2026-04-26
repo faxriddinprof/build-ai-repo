@@ -10,6 +10,7 @@ from app.deps import get_current_user, get_db, require_role
 from app.models.call import Call
 from app.models.user import User
 from app.schemas.call import CallCreate, CallEndResponse, CallHistoryItem, CallResponse, IntakeUpdate
+from app.utils.text import format_uz_relative_datetime
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -45,6 +46,43 @@ async def list_calls(
         stmt = stmt.where(Call.agent_id == user.id)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/history", response_model=list[CallHistoryItem])
+async def get_call_history(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    agent: User = Depends(require_role("agent")),
+):
+    """Agent's own post-call history (same shape as supervisor history)."""
+    stmt = (
+        select(Call)
+        .where(Call.agent_id == agent.id)
+        .where(Call.ended_at.isnot(None))
+        .order_by(Call.ended_at.desc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    calls = res.scalars().all()
+    items = []
+    for call in calls:
+        duration = 0
+        if call.ended_at and call.started_at:
+            duration = int((call.ended_at - call.started_at).total_seconds())
+        last_sentiment = call.sentiment_journey[-1] if call.sentiment_journey else None
+        ended_at_str = format_uz_relative_datetime(call.ended_at) if call.ended_at else None
+        items.append(CallHistoryItem(
+            id=call.id,
+            name=agent.email.split("@")[0],
+            agentId=call.agent_id,
+            duration=duration,
+            sentiment=last_sentiment,
+            topObjection=call.top_objection,
+            endedAt=ended_at_str,
+            outcome=call.outcome,
+            complianceScore=call.compliance_score,
+        ))
+    return items
 
 
 @router.get("/{call_id}", response_model=CallResponse)
