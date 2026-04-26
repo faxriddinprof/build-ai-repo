@@ -43,6 +43,9 @@ htmlcov/
 .coverage
 .coverage.*
 
+# Git worktrees
+.worktrees/
+
 # Node (frontend)
 node_modules/
 frontend/dist/

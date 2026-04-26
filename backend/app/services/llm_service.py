@@ -78,8 +78,8 @@ async def chat(
         max_tokens=max_tokens,
         temperature=temperature,
         stream=stream,
-        api_base=settings.LITELLM_BASE_URL,
-        api_key=settings.LITELLM_API_KEY,
+        api_base=settings.LLM_BASE_URL,
+        api_key=settings.LLM_API_KEY,
         timeout=timeout,
     )
     if stream:
@@ -113,8 +113,8 @@ async def get_suggestion(
             max_tokens=settings.LLM_MAX_TOKENS_SUGGESTION,
             temperature=0.3,
             stream=True,
-            api_base=settings.LITELLM_BASE_URL,
-            api_key=settings.LITELLM_API_KEY,
+            api_base=settings.LLM_BASE_URL,
+            api_key=settings.LLM_API_KEY,
             timeout=float(settings.LLM_TIMEOUT_SECONDS),
         )
         async for chunk in stream:

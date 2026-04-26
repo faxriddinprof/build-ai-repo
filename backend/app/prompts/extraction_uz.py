@@ -1,6 +1,6 @@
 EXTRACTION_PROMPT = """\
 You are an assistant that extracts customer information from a bank operator conversation.
-Return ONLY valid JSON in the format below. No extra text, no explanation.
+Return ONLY valid JSON in the format below. No extra text, no explanation. /no_think
 
 {{
   "customer_name": "<full name, or null if not found>",

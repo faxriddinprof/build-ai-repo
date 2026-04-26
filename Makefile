@@ -19,8 +19,8 @@ help:           ## Show this help
 	  | awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 # ── infrastructure ────────────────────────────────────────────────────────────
-infra:          ## Start postgres + ollama + litellm (background)
-	$(COMPOSE) up postgres ollama litellm -d
+infra:          ## Start postgres + ollama (background)
+	$(COMPOSE) up postgres ollama -d
 
 api:            ## Start only the API container (foreground)
 	$(COMPOSE) up $(API_SVC)
@@ -108,13 +108,6 @@ login:          ## Login with admin credentials and print the access token
 	  -H 'Content-Type: application/json' \
 	  -d '{"email":"admin@bank.uz","password":"changeme"}' \
 	  | python3 -m json.tool
-
-litellm-health: ## Check LiteLLM proxy health
-	@curl -s http://localhost:4000/health | python3 -m json.tool
-
-litellm-models: ## List models registered with LiteLLM
-	@curl -s http://localhost:4000/v1/models \
-	  -H "Authorization: Bearer sk-litellm-local" | python3 -m json.tool
 
 ollama-models:  ## List models pulled into Ollama
 	@curl -s http://localhost:11434/api/tags | python3 -m json.tool

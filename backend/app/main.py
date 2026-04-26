@@ -149,7 +149,7 @@ async def healthz():
         import httpx
 
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{settings.LITELLM_BASE_URL}/health/liveliness")
+            resp = await client.get(f"{settings.LLM_BASE_URL}/api/tags")
             ollama_ok = resp.status_code == 200
     except Exception:
         pass

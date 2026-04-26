@@ -26,7 +26,7 @@ Browser/Agent
     ├── extraction_service (LLM → JSON intake, auto at 60 s)
     ├── guardrail_service (BANK_TOPICS keyword filter)
     ├── rag_service (BGE-M3 dense + BM25s sparse → RRF → top-5)
-    ├── llm_service (Qwen3-8B via LiteLLM, streaming)
+    ├── llm_service (Qwen3-8B via Ollama, streaming via litellm SDK)
     └── event_bus → WS /ws/supervisor?token=<jwt>
 
   Events delivered via:
@@ -52,7 +52,7 @@ Admin
 | DB driver | asyncpg |
 | Vector store | PostgreSQL 16 + pgvector (ivfflat, cosine) |
 | STT | faster-whisper (`Kotib/uzbek_stt_v1` on GPU, `tiny` for dev) |
-| LLM | Qwen3-8B Q4_K_M via Ollama → LiteLLM proxy |
+| LLM | Qwen3-8B Q4_K_M via Ollama (called through `litellm` Python SDK; no proxy in path) |
 | Dense embeddings | BGE-M3 (1024-dim) via Ollama |
 | Sparse retrieval | BM25s (in-process, disk-persisted in `uploads/bm25_index/`) |
 | Retrieval fusion | Reciprocal Rank Fusion (k=60) |
@@ -65,7 +65,7 @@ Admin
 ## Development Commands
 
 ```bash
-# Start infrastructure (postgres + ollama + litellm)
+# Start infrastructure (postgres + ollama)
 make infra
 
 # Pull Ollama models into static/media/models/ (once, ~6 GB)
@@ -209,9 +209,9 @@ All constants live in `config.py`. Override in `backend/.env`:
 ```env
 JWT_SECRET=             # required — generate: openssl rand -hex 32
 
-# LiteLLM
-LITELLM_API_KEY=sk-bank-internal-key   # must match litellm_config.yaml master_key
-LITELLM_BASE_URL=http://litellm:4000
+# LLM (litellm SDK calls Ollama directly; no proxy in path)
+LLM_BASE_URL=http://ollama:11434
+LLM_API_KEY=sk-bank-internal-key       # ignored by Ollama; harmless
 
 # Models
 LLM_MODEL=ollama/qwen3:8b-q4_K_M

@@ -1,6 +1,8 @@
 SUMMARY_PROMPT = """\
 You are an assistant that summarizes bank call center conversations in Uzbek.
 Read the conversation and compliance data below. Return ONLY valid JSON — no extra text.
+You are an assistant that summarizes bank call center conversations.
+Read the conversation below and return ONLY valid JSON. No extra text. /no_think
 
 {{
   "natija": "<one short Uzbek sentence: what was the call outcome for the customer>",

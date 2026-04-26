@@ -10,13 +10,13 @@ Full system design: deployment, application layers, data flows, and security mod
 ┌─────────────────────────────────────────────────────────────────────┐
 │  On-Premise Server  (RTX 5070 Ti 16 GB VRAM)                       │
 │                                                                     │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌─────────────┐  │
-│   │ postgres │    │  ollama  │    │ litellm  │    │  FastAPI    │  │
-│   │ :5432    │    │ :11434   │    │ :4000    │    │  api :8000  │  │
-│   │ pgvector │    │ qwen3-8b │    │ proxy    │    │             │  │
-│   │ pg16     │    │ bge-m3   │    │          │    │ uvicorn     │  │
-│   │          │    │          │    │          │    │ workers=1   │  │
-│   └──────────┘    └──────────┘    └──────────┘    └─────────────┘  │
+│   ┌──────────┐         ┌──────────┐         ┌─────────────┐        │
+│   │ postgres │         │  ollama  │         │  FastAPI    │        │
+│   │ :5432    │         │ :11434   │         │  api :8000  │        │
+│   │ pgvector │         │ qwen3-8b │         │             │        │
+│   │ pg16     │         │ bge-m3   │         │ uvicorn     │        │
+│   │          │         │          │         │ workers=1   │        │
+│   └──────────┘         └──────────┘         └─────────────┘        │
 │   Docker Compose — internal network "buildwithai_default"           │
 └─────────────────────────────────────────────────────────────────────┘
            ▲                                        ▲
@@ -44,32 +44,29 @@ docker-compose.yml
 │   Exposes: 5432
 │
 ├── ollama  (ollama/ollama)
-│   GPU passthrough: nvidia count=1
-│   Volume: ollama_data (model weights persist)
-│   Healthcheck: GET /api/tags
+│   GPU passthrough: nvidia count=1 (only when docker-compose.gpu.yml is used)
+│   Volume: ./static/media/models → /root/.ollama  (bind mount, models persist)
+│   Healthcheck: ollama list
 │   Exposes: 11434
 │   Models loaded at runtime (pull once):
 │     qwen3:8b-q4_K_M    ~5 GB VRAM
-│     bge-m3   ~0.3 GB VRAM
-│
-├── litellm  (ghcr.io/berriai/litellm:main-latest)
-│   Config: ./litellm_config.yaml (read-only mount)
-│   depends_on: ollama (healthy)
-│   Healthcheck: GET /health
-│   Exposes: 4000
-│   Role: OpenAI-compatible HTTP proxy → Ollama
+│     bge-m3             ~0.5 GB VRAM
 │
 └── api  (build: ./backend/Dockerfile)
-    GPU passthrough: nvidia count=1  ← for faster-whisper
-    ENV: DATABASE_URL, LITELLM_BASE_URL from .env
-    Volume: ./backend/uploads → /app/uploads
-    depends_on: postgres (healthy), litellm (healthy)
+    GPU passthrough: nvidia count=1  ← for faster-whisper (when GPU compose is used)
+    ENV: DATABASE_URL, LLM_BASE_URL from .env
+    Volumes:
+      ./backend/uploads → /app/uploads
+      whisper_models     → /app/models   (named volume; survives rebuilds)
+    depends_on: postgres (healthy), ollama (healthy)
     Healthcheck: GET /healthz
     Exposes: 8000
     Restart: unless-stopped
 ```
 
-**Startup order enforced by healthchecks:** postgres → ollama → litellm → api
+**Startup order enforced by healthchecks:** postgres → ollama → api
+
+> **No LiteLLM proxy.** The API uses the `litellm` Python SDK to talk to Ollama directly at `http://ollama:11434/api/{generate,embed}`. Earlier versions ran a proxy container at `:4000`; it was removed because the SDK speaks Ollama-native paths but the proxy only exposes OpenAI-compat (`/v1/...`).
 
 ---
 
@@ -350,8 +347,8 @@ call_pipeline.py  (shared AI logic — called by both transports)
   ├── extraction_service   ← llm_service
   ├── summary_service      ← llm_service
   ├── guardrail_service    ← pure Python keyword set
-  ├── rag_service          ← litellm aembedding + asyncpg + BM25s
-  ├── llm_service          ← litellm acompletion
+  ├── rag_service          ← litellm SDK aembedding + asyncpg + BM25s
+  ├── llm_service          ← litellm SDK acompletion
   └── event_bus            ← asyncio queues → supervisor_ws
 
 signaling_ws.py  (WebRTC transport)
@@ -373,6 +370,5 @@ auth.py / deps.py
 
 External runtime deps (must be healthy before api starts):
   postgres :5432           ← asyncpg connections via SQLAlchemy pool
-  litellm  :4000           ← all acompletion + aembedding calls
-  ollama   :11434          ← serves qwen3 + bge-m3 to litellm
+  ollama   :11434          ← all litellm-SDK acompletion + aembedding calls (qwen3 + bge-m3)
 ```
