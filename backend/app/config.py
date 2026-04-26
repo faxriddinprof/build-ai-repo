@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@bank.uz"
     ADMIN_PASSWORD: str = "changeme"
 
+    SUPERVISOR_EMAIL: str = "supervisor@bank.uz"
+    SUPERVISOR_PASSWORD: str = "supervisor123"
+
+    AGENT_EMAIL: str = "agent@bank.uz"
+    AGENT_PASSWORD: str = "agent123"
+
     class Config:
         env_file = ".env"
 

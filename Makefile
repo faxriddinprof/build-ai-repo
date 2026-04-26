@@ -60,7 +60,10 @@ convert-stt:    ## Convert Kotib/uzbek_stt_v1 → CTranslate2 format for faster-
 migrate:        ## Run Alembic migrations (postgres must be healthy)
 	$(COMPOSE) exec $(API_SVC) alembic upgrade head
 
-seed:           ## Create the initial admin user
+seed:           ## Create/update admin + supervisor + agent seed users
+	$(COMPOSE) exec $(API_SVC) python scripts/seed_users.py
+
+seed-admin:     ## Create/update admin user only (legacy)
 	$(COMPOSE) exec $(API_SVC) python scripts/seed_admin.py
 
 seed-clients:   ## Seed 3 demo client profiles (Toshkent/Samarqand/Andijon)
