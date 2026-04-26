@@ -297,7 +297,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
 
     const load = async () => {
       try {
-        const res = await fetch(`/customer/${clientId}/call`)
+        const res = await fetch(`/api/customer/${clientId}/call`)
         if (!res.ok) throw new Error('Not found')
         const data = (await res.json()) as CustomerInitResponse
         if (cancelled) return

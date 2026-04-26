@@ -615,10 +615,10 @@ async function doClientPage() {
   const cid = g('clientId') || _state.clientId;
   if (!cid) { logErr('Enter client_id'); return; }
   try {
-    const r = await fetch(`${apiBase()}/customer/${cid}/call`);
+    const r = await fetch(`${apiBase()}/api/customer/${cid}/call`);
     const j = await r.json();
     if (!r.ok) { logErr(`Customer page ${r.status}: ${JSON.stringify(j)}`); return; }
-    logInfo(`/customer/${cid}/call → ${JSON.stringify(j)}`);
+    logInfo(`/api/customer/${cid}/call → ${JSON.stringify(j)}`);
     if (j.customer_token) {
       document.getElementById('customerToken').value = j.customer_token;
       customerToken = j.customer_token;

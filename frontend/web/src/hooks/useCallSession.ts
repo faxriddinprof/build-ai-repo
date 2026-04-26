@@ -139,10 +139,23 @@ export function useCallSession(): CallSessionApi {
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
 
+      // WebM timesliced chunks after the first lack the EBML/track init
+      // segment, so ffmpeg can't decode them standalone. We prepend the
+      // saved first chunk (which contains the init segment) to every
+      // subsequent chunk before sending.
+      let initChunk: Blob | null = null
+
       recorder.ondataavailable = async (e) => {
         if (e.data.size === 0) return
+        let sendBlob: Blob
+        if (!initChunk) {
+          initChunk = e.data
+          sendBlob = e.data
+        } else {
+          sendBlob = new Blob([initChunk, e.data], { type: mimeType })
+        }
         const form = new FormData()
-        form.append('audio', e.data, 'chunk.webm')
+        form.append('audio', sendBlob, 'chunk.webm')
         form.append('call_id', callId)
         form.append('lang_hint', 'uz')
         try {
@@ -157,6 +170,20 @@ export function useCallSession(): CallSessionApi {
     },
     [handleRawEvent],
   )
+
+  // Minimal 44-byte WAV (0 samples) — satisfies the backend's required
+  // audio field when we only need to signal final=true for summary.
+  const silentWav = (): Blob => {
+    const buf = new ArrayBuffer(44)
+    const v = new DataView(buf)
+    const str = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)) }
+    str(0, 'RIFF'); v.setUint32(4, 36, true); str(8, 'WAVE')
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true)
+    v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true)
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+    str(36, 'data'); v.setUint32(40, 0, true)
+    return new Blob([buf], { type: 'audio/wav' })
+  }
 
   // -------------------------------------------------------------------------
   // Switch to REST fallback on ICE failure
@@ -342,6 +369,7 @@ export function useCallSession(): CallSessionApi {
           if (!rec) { resolve(); return }
           rec.onstop = async () => {
             const form = new FormData()
+            form.append('audio', silentWav(), 'final.wav')
             form.append('call_id', callId)
             form.append('lang_hint', 'uz')
             form.append('final', 'true')

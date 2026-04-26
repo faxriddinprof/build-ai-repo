@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-router = APIRouter(prefix="/customer")
+router = APIRouter(prefix="/api/customer")
 
 
 @router.get("/{client_id}/call")
