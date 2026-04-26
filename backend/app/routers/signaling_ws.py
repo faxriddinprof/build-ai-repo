@@ -17,7 +17,6 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.user import User
-from app.models.call_queue import CallQueueEntry
 from app.services.auth_service import decode_token
 
 router = APIRouter()
@@ -37,28 +36,6 @@ async def _authenticate(token: str) -> Optional[User]:
         return None
     return user
 
-
-async def _authenticate_customer(token: str) -> Optional[str]:
-    """Returns queue_id if token is a valid accepted customer token, else None."""
-    try:
-        payload = decode_token(token)
-    except JWTError:
-        return None
-    if payload.get("type") != "customer":
-        return None
-    sub = payload.get("sub", "")
-    if not sub.startswith("queue:"):
-        return None
-    queue_id = sub[len("queue:"):]
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(CallQueueEntry).where(
-                CallQueueEntry.id == queue_id,
-                CallQueueEntry.status == "accepted",
-            )
-        )
-        entry = result.scalar_one_or_none()
-    return queue_id if entry else None
 
 
 def _parse_ice_candidate(msg: dict):
@@ -93,12 +70,6 @@ def _parse_ice_candidate(msg: dict):
 @router.websocket("/ws/signaling")
 async def signaling_ws(websocket: WebSocket):
     token = websocket.query_params.get("token", "")
-
-    # Try customer token first (cheaper — no DB User lookup on agent path)
-    queue_id = await _authenticate_customer(token)
-    if queue_id is not None:
-        await _customer_signaling(websocket, queue_id)
-        return
 
     user = await _authenticate(token)
     if user is None:
@@ -171,79 +142,3 @@ async def signaling_ws(websocket: WebSocket):
         # PC stays alive — it's tracked in webrtc_service._active_pcs
 
 
-async def _customer_signaling(websocket: WebSocket, queue_id: str):
-    """Lightweight signaling handler for customer browser WebRTC connections."""
-    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer
-    from app.config import settings
-
-    await websocket.accept()
-    log.info("ws.signaling.customer_connected", queue_id=queue_id)
-
-    ice_servers = [RTCIceServer(urls=url) for url in settings.STUN_SERVERS]
-    pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=ice_servers))
-
-    @pc.on("icecandidate")
-    async def on_local_ice(candidate):
-        if candidate is not None:
-            try:
-                await websocket.send_json({
-                    "type": "ice-candidate",
-                    "candidate": f"candidate:{candidate.to_sdp()}",
-                    "sdpMid": candidate.sdpMid,
-                    "sdpMLineIndex": candidate.sdpMLineIndex,
-                })
-            except Exception:
-                pass
-
-    @pc.on("datachannel")
-    def on_dc(dc):
-        @dc.on("message")
-        async def on_msg(raw):
-            try:
-                msg = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
-            except Exception:
-                return
-            if msg.get("type") == "start_call":
-                dc.send(json.dumps({"type": "call_started"}))
-
-    try:
-        while True:
-            try:
-                raw = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-            except asyncio.TimeoutError:
-                break
-
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-
-            msg_type = msg.get("type")
-
-            if msg_type == "offer":
-                sdp = msg.get("sdp", "")
-                offer = RTCSessionDescription(sdp=sdp, type="offer")
-                await pc.setRemoteDescription(offer)
-                answer = await pc.createAnswer()
-                await pc.setLocalDescription(answer)
-                await websocket.send_json({"type": "answer", "sdp": pc.localDescription.sdp})
-                log.info("ws.signaling.customer_answer_sent", queue_id=queue_id)
-
-            elif msg_type == "ice-candidate":
-                try:
-                    candidate = _parse_ice_candidate(msg)
-                    if candidate:
-                        await pc.addIceCandidate(candidate)
-                except Exception as e:
-                    log.warning("ws.signaling.customer_ice_error", error=str(e))
-
-            elif msg_type == "end_call":
-                break
-
-    except WebSocketDisconnect:
-        log.info("ws.signaling.customer_disconnected", queue_id=queue_id)
-    except Exception as e:
-        log.error("ws.signaling.customer_error", error=str(e), queue_id=queue_id)
-    finally:
-        await pc.close()
-        log.info("ws.signaling.customer_closed", queue_id=queue_id)

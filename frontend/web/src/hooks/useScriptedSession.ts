@@ -1,7 +1,7 @@
 import { useReducer, useRef, useCallback } from 'react'
 import { sessionReducer, initialSessionState } from './useSessionReducer'
 import { DEMO_TIMELINE } from '../data/demoTimeline'
-import type { CallSessionApi, ConfirmIntakeData, IntakeProposal } from '../types/session'
+import type { CallSessionApi } from '../types/session'
 
 export function useScriptedSession(): CallSessionApi {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState)
@@ -15,7 +15,6 @@ export function useScriptedSession(): CallSessionApi {
   const dispatchedSuggestions = useRef<Set<number>>(new Set())
   const dispatchedCompliance = useRef<Set<string>>(new Set())
   const sentimentIndexRef = useRef(-1)
-  const intakeSentRef = useRef(false)
   const endedRef = useRef(false)
 
   const endCall = useCallback(() => {
@@ -48,7 +47,6 @@ export function useScriptedSession(): CallSessionApi {
       dispatchedSuggestions.current = new Set()
       dispatchedCompliance.current = new Set()
       sentimentIndexRef.current = -1
-      intakeSentRef.current = false
       endedRef.current = false
 
       dispatch({ type: 'RESET' })
@@ -115,19 +113,6 @@ export function useScriptedSession(): CallSessionApi {
           }
         })
 
-        // Intake proposal
-        if (!intakeSentRef.current && t >= DEMO_TIMELINE.intakeAppears) {
-          intakeSentRef.current = true
-          const d = DEMO_TIMELINE.intakeData
-          const proposal: IntakeProposal = {
-            customerName: d.name,
-            customerPassport: d.passport,
-            customerRegion: d.region,
-            confidence: 0.95,
-          }
-          dispatch({ type: 'INTAKE_PROPOSAL', proposal })
-        }
-
         // End of demo
         if (t >= DEMO_TIMELINE.duration) {
           endCall()
@@ -136,14 +121,6 @@ export function useScriptedSession(): CallSessionApi {
     },
     [endCall],
   )
-
-  const confirmIntake = useCallback((_data: ConfirmIntakeData) => {
-    dispatch({ type: 'INTAKE_CONFIRMED' })
-  }, [])
-
-  const dismissIntake = useCallback(() => {
-    dispatch({ type: 'INTAKE_DISMISSED' })
-  }, [])
 
   const reset = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -155,7 +132,6 @@ export function useScriptedSession(): CallSessionApi {
     dispatchedSuggestions.current = new Set()
     dispatchedCompliance.current = new Set()
     sentimentIndexRef.current = -1
-    intakeSentRef.current = false
     endedRef.current = false
     dispatch({ type: 'RESET' })
   }, [])
@@ -164,8 +140,6 @@ export function useScriptedSession(): CallSessionApi {
     ...state,
     start,
     endCall,
-    confirmIntake,
-    dismissIntake,
     reset,
   }
 }

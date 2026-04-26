@@ -20,14 +20,6 @@ def create_access_token(sub: str, role: str) -> str:
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_customer_token(queue_id: str) -> str:
-    from uuid import uuid4
-    jti = str(uuid4())
-    expire = datetime.utcnow() + timedelta(minutes=settings.CUSTOMER_TOKEN_TTL_MINUTES)
-    payload = {"sub": f"queue:{queue_id}", "role": "customer", "jti": jti, "exp": expire, "type": "customer"}
-    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM), jti
-
-
 def create_refresh_token(sub: str) -> str:
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_TTL_DAYS)
     payload = {"sub": sub, "exp": expire, "type": "refresh"}

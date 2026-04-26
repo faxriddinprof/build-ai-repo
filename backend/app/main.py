@@ -19,10 +19,7 @@ from app.logging_config import RequestIdMiddleware, setup_logging
 from app.middleware.rate_limit import _rate_limit_exceeded_handler, limiter
 from app.routers import admin_users, auth, calls
 from app.routers.admin_documents import router as admin_documents_router
-from app.routers.customer import router as customer_router
-from app.routers.customer_page import router as customer_page_router
 from app.routers.demo import router as demo_router
-from app.routers.queue import router as queue_router
 from app.routers.signaling_ws import router as signaling_ws_router
 from app.routers.supervisor_api import router as supervisor_api_router
 from app.routers.supervisor_ws import router as supervisor_ws_router
@@ -119,10 +116,7 @@ app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
 app.include_router(signaling_ws_router, tags=["websocket"])
 app.include_router(supervisor_ws_router, tags=["websocket"])
 app.include_router(transcribe_router, prefix="/api", tags=["transcribe"])
-app.include_router(queue_router, tags=["queue"])
-app.include_router(customer_router, tags=["customer"])
 app.include_router(supervisor_api_router, tags=["supervisor"])
-app.include_router(customer_page_router, tags=["customer-page"])
 app.include_router(admin_panel_router, tags=["admin-panel"])
 
 _admin_static_dir = str(

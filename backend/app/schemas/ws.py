@@ -74,3 +74,12 @@ class ErrorEvent(BaseModel):
     call_id: Optional[str] = None
     code: str
     message: str
+
+
+class AIAnswerEvent(BaseModel):
+    type: str = "ai_answer"
+    call_id: str
+    message_id: str
+    text: str
+    done: bool
+    ts: float

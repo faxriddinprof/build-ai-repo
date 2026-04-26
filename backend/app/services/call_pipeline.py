@@ -346,6 +346,38 @@ async def process_audio_chunk(
         except Exception as e:
             log.warning("suggestion_log.error", error=str(e))
 
+    # ── AI agent answer ──────────────────────────────────────────────────────
+    if state is not None:
+        # WebRTC path: fire answer in background, tokens stream via DataChannel
+        asyncio.create_task(
+            _bg_ai_answer(call_id, text, client_facts_header, rag_context)
+        )
+    else:
+        # REST fallback: collect answer synchronously and append to events
+        import uuid
+        import time as _time
+
+        msg_id = uuid.uuid4().hex
+        answer_tokens: list[str] = []
+        try:
+            async for tok in llm_service.get_agent_answer(
+                customer_text=text,
+                rag_context=rag_context,
+                client_facts=client_facts_header,
+            ):
+                answer_tokens.append(tok)
+        except Exception as e:
+            log.error("ai_answer.rest_error", error=str(e), call_id=call_id)
+        if answer_tokens:
+            events.append(_make_event(
+                "ai_answer",
+                call_id=call_id,
+                message_id=msg_id,
+                text="".join(answer_tokens),
+                done=True,
+                ts=_time.time(),
+            ))
+
     return events
 
 
@@ -456,6 +488,58 @@ async def _bg_live_script(
             pass
     except Exception as e:
         log.warning("live_script.error", call_id=call_id, error=str(e))
+
+
+async def _bg_ai_answer(
+    call_id: str,
+    customer_text: str,
+    client_facts: str,
+    rag_context: str,
+) -> None:
+    """Stream AI agent answer tokens via event_bus and WebRTC DataChannel."""
+    import time as _time
+    import uuid
+
+    message_id = uuid.uuid4().hex
+    try:
+        async for token in llm_service.get_agent_answer(
+            customer_text=customer_text,
+            rag_context=rag_context,
+            client_facts=client_facts,
+        ):
+            event = _make_event(
+                "ai_answer",
+                call_id=call_id,
+                message_id=message_id,
+                text=token,
+                done=False,
+                ts=_time.time(),
+            )
+            await event_bus.publish("supervisor", {**event})
+            try:
+                from app.services import webrtc_service
+
+                await webrtc_service.send_to_call(call_id, event)
+            except Exception:
+                pass
+        # Final done signal
+        done_event = _make_event(
+            "ai_answer",
+            call_id=call_id,
+            message_id=message_id,
+            text="",
+            done=True,
+            ts=_time.time(),
+        )
+        await event_bus.publish("supervisor", {**done_event})
+        try:
+            from app.services import webrtc_service
+
+            await webrtc_service.send_to_call(call_id, done_event)
+        except Exception:
+            pass
+    except Exception as e:
+        log.error("ai_answer.bg_error", error=str(e), call_id=call_id)
 
 
 async def finalize_call(call_id: str) -> dict:

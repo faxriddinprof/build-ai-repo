@@ -5,7 +5,6 @@ import { useAuthStore } from './store/authStore'
 import { useThemeStore } from './store/themeStore'
 import LoginPage from './pages/LoginPage'
 import AgentDashboardPage from './pages/AgentDashboardPage'
-import CustomerCallPage from './pages/CustomerCallPage'
 import SupervisorPage from './pages/SupervisorPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
@@ -58,10 +57,6 @@ export default function App() {
                 <SupervisorPage />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/customer/:clientId/call"
-            element={<CustomerCallPage />}
           />
           <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />

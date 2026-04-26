@@ -74,7 +74,6 @@ class Settings(BaseSettings):
     ]
 
     INTAKE_AUTO_TRIGGER_AT_SECONDS: int = 20
-    CUSTOMER_TOKEN_TTL_MINUTES: int = 10
 
     ADMIN_EMAIL: str = "admin@bank.uz"
     ADMIN_PASSWORD: str = "changeme"

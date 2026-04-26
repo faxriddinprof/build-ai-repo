@@ -139,6 +139,50 @@ async def get_suggestion(
             return
 
 
+async def get_agent_answer(
+    customer_text: str,
+    rag_context: str,
+    client_facts: str,
+) -> AsyncIterator[str]:
+    """Stream a full Uzbek agent answer to the customer's question."""
+    from app.prompts.system_uz import AGENT_ANSWER_PROMPT
+
+    prompt = AGENT_ANSWER_PROMPT.format(
+        client_facts=client_facts or "Mavjud emas.",
+        rag_context=rag_context or "Mavjud emas.",
+        customer_text=customer_text,
+    )
+
+    for attempt in range(2):
+        tokens: list[str] = []
+        try:
+            response = await acompletion(
+                model=settings.LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                api_base=settings.LLM_BASE_URL,
+                api_key=settings.LLM_API_KEY,
+                stream=True,
+                temperature=0.4,
+                max_tokens=300,
+            )
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    tokens.append(delta)
+        except Exception as e:
+            log.error("agent_answer.llm_error", error=str(e), attempt=attempt)
+            if attempt == 0:
+                continue
+            return
+
+        full = "".join(tokens)
+        if _looks_uzbek(full) or attempt == 1:
+            for t in tokens:
+                yield t
+            return
+        log.warning("agent_answer.not_uzbek_retry")
+
+
 async def warmup() -> None:
     import time
 

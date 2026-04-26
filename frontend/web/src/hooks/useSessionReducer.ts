@@ -6,11 +6,9 @@ export const initialSessionState: SessionState = {
   callTime: 0,
   transcripts: [],
   suggestions: [],
+  aiAnswers: [],
   sentiment: 'neutral',
   complianceDone: [],
-  intakeProposal: null,
-  intakeConfirmed: false,
-  intakeDismissed: false,
   summary: null,
   error: null,
 }
@@ -55,19 +53,34 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       if (state.complianceDone.includes(action.phraseId)) return state
       return { ...state, complianceDone: [...state.complianceDone, action.phraseId] }
 
-    case 'INTAKE_PROPOSAL':
+    case 'AI_ANSWER_DELTA': {
+      const existing = state.aiAnswers.find(a => a.id === action.messageId)
+      if (existing) {
+        return {
+          ...state,
+          aiAnswers: state.aiAnswers.map(a =>
+            a.id === action.messageId
+              ? { ...a, text: a.text + action.delta }
+              : a
+          ),
+        }
+      }
       return {
         ...state,
-        intakeProposal: action.proposal,
-        intakeConfirmed: false,
-        intakeDismissed: false,
+        aiAnswers: [
+          ...state.aiAnswers.slice(-19), // keep max 20
+          { id: action.messageId, text: action.delta, streaming: true, ts: action.ts },
+        ],
       }
+    }
 
-    case 'INTAKE_CONFIRMED':
-      return { ...state, intakeConfirmed: true }
-
-    case 'INTAKE_DISMISSED':
-      return { ...state, intakeDismissed: true }
+    case 'AI_ANSWER_DONE':
+      return {
+        ...state,
+        aiAnswers: state.aiAnswers.map(a =>
+          a.id === action.messageId ? { ...a, streaming: false } : a
+        ),
+      }
 
     case 'SUMMARY_READY':
       return { ...state, status: 'ended', summary: action.summary }

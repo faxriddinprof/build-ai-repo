@@ -15,11 +15,11 @@ export interface SuggestionEntry {
   arrivedAt: number
 }
 
-export interface IntakeProposal {
-  customerName: string
-  customerPassport: string
-  customerRegion: string
-  confidence: number
+export interface AIAnswerEntry {
+  id: string
+  text: string
+  streaming: boolean
+  ts: number
 }
 
 export interface CallSummary {
@@ -41,11 +41,9 @@ export interface SessionState {
   callTime: number
   transcripts: TranscriptEntry[]
   suggestions: SuggestionEntry[]
+  aiAnswers: AIAnswerEntry[]
   sentiment: Sentiment
   complianceDone: string[]
-  intakeProposal: IntakeProposal | null
-  intakeConfirmed: boolean
-  intakeDismissed: boolean
   summary: CallSummary | null
   error: string | null
 }
@@ -56,24 +54,15 @@ export type SessionAction =
   | { type: 'SUGGESTION'; entry: SuggestionEntry }
   | { type: 'SENTIMENT'; sentiment: Sentiment }
   | { type: 'COMPLIANCE_TICK'; phraseId: string }
-  | { type: 'INTAKE_PROPOSAL'; proposal: IntakeProposal }
-  | { type: 'INTAKE_CONFIRMED' }
-  | { type: 'INTAKE_DISMISSED' }
+  | { type: 'AI_ANSWER_DELTA'; messageId: string; delta: string; ts: number }
+  | { type: 'AI_ANSWER_DONE'; messageId: string }
   | { type: 'SUMMARY_READY'; summary: CallSummary }
   | { type: 'ERROR'; message: string }
   | { type: 'TICK'; callTime: number }
   | { type: 'RESET' }
 
-export interface ConfirmIntakeData {
-  customer_name: string
-  customer_passport: string
-  customer_region: string
-}
-
 export interface CallSessionApi extends SessionState {
   start: (callId: string) => void
   endCall: () => void
-  confirmIntake: (data: ConfirmIntakeData) => void
-  dismissIntake: () => void
   reset: () => void
 }

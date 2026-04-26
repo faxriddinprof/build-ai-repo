@@ -4,8 +4,6 @@ import { useAuthStore } from '../store/authStore'
 import api from '../lib/api'
 import type {
   CallSessionApi,
-  ConfirmIntakeData,
-  IntakeProposal,
   TranscriptEntry,
   SuggestionEntry,
   Sentiment,
@@ -96,14 +94,16 @@ export function useCallSession(): CallSessionApi {
         case 'compliance_tick':
           dispatch({ type: 'COMPLIANCE_TICK', phraseId: (evt.phrase_id as string) ?? '' })
           break
-        case 'intake_proposal': {
-          const proposal: IntakeProposal = {
-            customerName: (evt.customer_name as string) ?? '',
-            customerPassport: (evt.customer_passport as string) ?? '',
-            customerRegion: (evt.customer_region as string) ?? '',
-            confidence: (evt.confidence as number) ?? 0,
+        case 'ai_answer': {
+          const ev = evt as { type: string; message_id: string; text: string; done: boolean; ts: number }
+          // Always append text delta if present
+          if (ev.text) {
+            dispatch({ type: 'AI_ANSWER_DELTA', messageId: ev.message_id, delta: ev.text, ts: ev.ts })
           }
-          dispatch({ type: 'INTAKE_PROPOSAL', proposal })
+          // Mark done if stream is finished
+          if (ev.done) {
+            dispatch({ type: 'AI_ANSWER_DONE', messageId: ev.message_id })
+          }
           break
         }
         case 'summary_ready':
@@ -407,35 +407,6 @@ export function useCallSession(): CallSessionApi {
   }, [handleRawEvent, stopTick, teardown])
 
   // -------------------------------------------------------------------------
-  // confirmIntake()
-  // -------------------------------------------------------------------------
-  const confirmIntake = useCallback(
-    async (data: ConfirmIntakeData) => {
-      const callId = callIdRef.current
-      if (callId) {
-        try {
-          await api.patch(`/api/calls/${callId}/intake`, {
-            customer_name: data.customer_name,
-            customer_passport: data.customer_passport,
-            customer_region: data.customer_region,
-          })
-        } catch {
-          // ignore
-        }
-      }
-      dispatch({ type: 'INTAKE_CONFIRMED' })
-    },
-    [],
-  )
-
-  // -------------------------------------------------------------------------
-  // dismissIntake()
-  // -------------------------------------------------------------------------
-  const dismissIntake = useCallback(() => {
-    dispatch({ type: 'INTAKE_DISMISSED' })
-  }, [])
-
-  // -------------------------------------------------------------------------
   // reset()
   // -------------------------------------------------------------------------
   const reset = useCallback(() => {
@@ -450,8 +421,6 @@ export function useCallSession(): CallSessionApi {
     ...state,
     start,
     endCall,
-    confirmIntake,
-    dismissIntake,
     reset,
   }
 }
