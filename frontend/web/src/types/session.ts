@@ -75,4 +75,5 @@ export interface CallSessionApi extends SessionState {
   endCall: () => void
   confirmIntake: (data: ConfirmIntakeData) => void
   dismissIntake: () => void
+  reset: () => void
 }

@@ -145,11 +145,27 @@ export function useScriptedSession(): CallSessionApi {
     dispatch({ type: 'INTAKE_DISMISSED' })
   }, [])
 
+  const reset = useCallback(() => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+    callTimeRef.current = 0
+    dispatchedTranscripts.current = new Set()
+    dispatchedSuggestions.current = new Set()
+    dispatchedCompliance.current = new Set()
+    sentimentIndexRef.current = -1
+    intakeSentRef.current = false
+    endedRef.current = false
+    dispatch({ type: 'RESET' })
+  }, [])
+
   return {
     ...state,
     start,
     endCall,
     confirmIntake,
     dismissIntake,
+    reset,
   }
 }

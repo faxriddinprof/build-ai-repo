@@ -18,6 +18,10 @@ export const initialSessionState: SessionState = {
 export function sessionReducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case 'CALL_STARTED':
+      // If already active (server confirmation after start()), only update callId — don't reset timer
+      if (state.status === 'active') {
+        return { ...state, callId: action.callId }
+      }
       return {
         ...state,
         status: 'active',

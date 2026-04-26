@@ -42,6 +42,7 @@ export default function AgentDashboardPage() {
   // Copy toast
   const [copyToast, setCopyToast] = useState(false)
   const copyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [queueOpen, setQueueOpen] = useState(true)
 
   const handleCopy = useCallback(() => {
     if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current)
@@ -69,14 +70,11 @@ export default function AgentDashboardPage() {
     session.endCall()
   }, [session])
 
-  // Reset after summary close
+  // Reset after summary close — returns to idle so IncomingCallModal can show again
   const handleSummaryClose = useCallback(() => {
-    // Reset by calling the reducer manually — both sessions need reset
-    // We dispatch RESET to the active session by calling a new start cycle
-    // Simplest approach: trigger a page-level reset via dispatching RESET
-    // Since session hooks expose their own state, we just reload state via start side-effects
-    // The PostCallSummary onClose just clears UI; next accept will start fresh
-  }, [])
+    realSession.reset()
+    demoSession.reset()
+  }, [realSession, demoSession])
 
   // Determine compliance items to show
   const complianceItems = DEMO_TIMELINE.compliance
@@ -368,8 +366,49 @@ export default function AgentDashboardPage() {
           )}
         </section>
 
+        {/* Queue rail toggle button */}
+        {!queueOpen && (
+          <button
+            onClick={() => setQueueOpen(true)}
+            style={{
+              position: 'absolute',
+              top: 14,
+              right: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '6px 10px',
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border-subtle)',
+              borderRight: 'none',
+              borderRadius: 'var(--r-md) 0 0 var(--r-md)',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--text-secondary)',
+              zIndex: 5,
+            }}
+          >
+            <Icon name="users" size={14} />
+            {queue.length > 0 && (
+              <span style={{
+                background: 'var(--sqb-blue-600)',
+                color: '#fff',
+                borderRadius: 99,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '1px 5px',
+                minWidth: 16,
+                textAlign: 'center',
+              }}>
+                {queue.length}
+              </span>
+            )}
+            <Icon name="chevron-left" size={12} />
+          </button>
+        )}
+
         {/* Queue rail */}
-        <QueueRail queue={queue} />
+        {queueOpen && <QueueRail queue={queue} onToggle={() => setQueueOpen(false)} />}
 
         {/* Intake card floating */}
         {intakeVisible && session.intakeProposal && (
@@ -398,9 +437,9 @@ export default function AgentDashboardPage() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Compliance Footer */}
+      {/* Compliance Footer — only during/after call */}
       {/* ------------------------------------------------------------------ */}
-      <footer style={footerStyle}>
+      {session.status !== 'idle' && <footer style={footerStyle}>
         <span style={{ color: 'var(--text-secondary)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Icon name="clipboard" size={15} />
           <span style={{ fontWeight: 600, fontSize: 13 }}>Compliance</span>
@@ -434,7 +473,7 @@ export default function AgentDashboardPage() {
             Yakunlash
           </Button>
         )}
-      </footer>
+      </footer>}
 
       {/* ------------------------------------------------------------------ */}
       {/* Modals */}

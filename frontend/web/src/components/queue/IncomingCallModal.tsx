@@ -38,7 +38,7 @@ export function IncomingCallModal({ queue, onAccept, onSkip }: IncomingCallModal
 
   if (queue.length === 0) return null
 
-  const first = queue[0]
+  const first = [...queue].sort((a, b) => b.waitTime - a.waitTime)[0]
 
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',

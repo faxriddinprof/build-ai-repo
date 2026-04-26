@@ -402,11 +402,23 @@ export function useCallSession(): CallSessionApi {
     dispatch({ type: 'INTAKE_DISMISSED' })
   }, [])
 
+  // -------------------------------------------------------------------------
+  // reset()
+  // -------------------------------------------------------------------------
+  const reset = useCallback(() => {
+    teardown()
+    callIdRef.current = null
+    callTimeRef.current = 0
+    usingRestFallbackRef.current = false
+    dispatch({ type: 'RESET' })
+  }, [teardown])
+
   return {
     ...state,
     start,
     endCall,
     confirmIntake,
     dismissIntake,
+    reset,
   }
 }
