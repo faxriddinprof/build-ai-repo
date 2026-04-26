@@ -20,7 +20,7 @@ log = structlog.get_logger()
 async def create_call(
     body: CallCreate = None,
     db: AsyncSession = Depends(get_db),
-    agent: User = Depends(require_role("agent")),
+    agent: User = Depends(require_role("agent", "admin")),
 ):
     call = Call(
         agent_id=agent.id,
@@ -52,7 +52,7 @@ async def list_calls(
 async def get_call_history(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    agent: User = Depends(require_role("agent")),
+    agent: User = Depends(require_role("agent", "admin")),
 ):
     """Agent's own post-call history (same shape as supervisor history)."""
     stmt = (
@@ -105,7 +105,7 @@ async def confirm_intake(
     call_id: str,
     body: IntakeUpdate,
     db: AsyncSession = Depends(get_db),
-    agent: User = Depends(require_role("agent")),
+    agent: User = Depends(require_role("agent", "admin")),
 ):
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()
@@ -129,7 +129,7 @@ async def confirm_intake(
 async def end_call(
     call_id: str,
     db: AsyncSession = Depends(get_db),
-    agent: User = Depends(require_role("agent")),
+    agent: User = Depends(require_role("agent", "admin")),
 ):
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()

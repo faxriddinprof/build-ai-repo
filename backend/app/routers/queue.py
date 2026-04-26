@@ -61,6 +61,25 @@ async def accept_call(
     agent: User = Depends(require_role("agent", "supervisor", "admin")),
 ):
     entry = await queue_service.accept(db, queue_id, agent.id)
+    if entry is queue_service.BLOCKED_ACTIVE_CALL:
+        # Auto-end lingering active calls, then retry accept
+        import asyncio
+        from app.services import call_pipeline
+
+        active_res = await db.execute(
+            select(Call).where(Call.agent_id == agent.id, Call.ended_at.is_(None))
+        )
+        stale_calls = active_res.scalars().all()
+        for stale in stale_calls:
+            stale.ended_at = datetime.utcnow()
+            stale.outcome = "interrupted"
+        if stale_calls:
+            await db.commit()
+            for stale in stale_calls:
+                asyncio.create_task(call_pipeline.finalize_call(stale.id))
+
+        entry = await queue_service.accept(db, queue_id, agent.id)
+
     if entry is None:
         raise HTTPException(
             status_code=404, detail="Queue entry not found or already accepted"

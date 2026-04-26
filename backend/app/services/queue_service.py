@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 import structlog
+from app.models.call import Call
 from app.models.call_queue import CallQueueEntry, SkipLog
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,9 +42,19 @@ async def enqueue(
     return entry
 
 
+BLOCKED_ACTIVE_CALL = "BLOCKED_ACTIVE_CALL"
+
+
 async def accept(
     db: AsyncSession, queue_id: str, agent_id: str
-) -> Optional[CallQueueEntry]:
+):
+    # Block if agent already has an active call
+    active = await db.execute(
+        select(Call).where(Call.agent_id == agent_id, Call.ended_at.is_(None)).limit(1)
+    )
+    if active.scalar_one_or_none() is not None:
+        return BLOCKED_ACTIVE_CALL
+
     res = await db.execute(select(CallQueueEntry).where(CallQueueEntry.id == queue_id))
     entry = res.scalar_one_or_none()
     if entry is None or entry.status != "pending":

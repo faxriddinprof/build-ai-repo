@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 export interface CustomerCallState {
   phase: 'loading' | 'idle' | 'ringing' | 'active' | 'ended' | 'error'
@@ -32,6 +33,8 @@ interface StatusResponse {
   queue_id: string
   operator?: string
   ice_servers?: RTCIceServer[]
+  call_ended?: boolean
+  call_id?: string | null
 }
 
 interface RawSignalingMessage {
@@ -42,6 +45,8 @@ interface RawSignalingMessage {
   [key: string]: unknown
 }
 
+const SESSION_TOKEN_KEY = 'sqb_customer_token'
+
 export function useCustomerCall(clientId: string): CustomerCallState {
   const [phase, setPhase] = useState<CustomerCallState['phase']>('loading')
   const [displayName, setDisplayName] = useState('')
@@ -51,6 +56,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
   const [waitTime, setWaitTime] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [, setSearchParams] = useSearchParams()
 
   // Refs — no re-renders needed
   const customerTokenRef = useRef<string | null>(null)
@@ -63,6 +69,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
   const streamRef = useRef<MediaStream | null>(null)
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const waitTickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const callTickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const waitTimeRef = useRef(0)
@@ -112,6 +119,13 @@ export function useCustomerCall(clientId: string): CustomerCallState {
     }
   }, [])
 
+  const stopActivePoll = useCallback(() => {
+    if (activePollRef.current !== null) {
+      clearInterval(activePollRef.current)
+      activePollRef.current = null
+    }
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Teardown all resources
   // ---------------------------------------------------------------------------
@@ -119,6 +133,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
     stopWaitTick()
     stopCallTick()
     stopPoll()
+    stopActivePoll()
 
     if (dcRef.current) {
       dcRef.current.close()
@@ -136,7 +151,33 @@ export function useCustomerCall(clientId: string): CustomerCallState {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
     }
-  }, [stopWaitTick, stopCallTick, stopPoll])
+
+    sessionStorage.removeItem(SESSION_TOKEN_KEY)
+    setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+  }, [stopWaitTick, stopCallTick, stopPoll, stopActivePoll, setSearchParams])
+
+  // ---------------------------------------------------------------------------
+  // Active-phase poll — detects when the agent ends the call
+  // ---------------------------------------------------------------------------
+  const startActivePoll = useCallback(() => {
+    if (activePollRef.current !== null) return
+    const token = customerTokenRef.current
+    if (!token) return
+    activePollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/customer/call/${token}/status`)
+        if (!res.ok) return
+        const data = (await res.json()) as StatusResponse
+        if (data.call_ended) {
+          stopActivePoll()
+          teardown()
+          setPhase('ended')
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 3000)
+  }, [stopActivePoll, teardown])
 
   // ---------------------------------------------------------------------------
   // startWebRTC — called when status becomes 'accepted'
@@ -228,6 +269,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
             if (evt.type === 'call_started') {
               setPhase('active')
               startCallTick()
+              startActivePoll()
             }
           } catch {
             // ignore malformed
@@ -239,7 +281,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
         teardown()
       }
     },
-    [startCallTick, teardown],
+    [startActivePoll, startCallTick, teardown],
   )
 
   // ---------------------------------------------------------------------------
@@ -271,6 +313,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
       if (!res.ok) throw new Error('Initiate failed')
       const data = (await res.json()) as InitiateResponse
       customerTokenRef.current = data.customer_token
+      sessionStorage.setItem(SESSION_TOKEN_KEY, data.customer_token)
     } catch {
       stopWaitTick()
       setPhase('error')
@@ -296,6 +339,7 @@ export function useCustomerCall(clientId: string): CustomerCallState {
           stopPoll()
           stopWaitTick()
           if (data.operator) setOperatorName(data.operator)
+          if (data.call_id) setSearchParams({ call_id: data.call_id }, { replace: true })
           const servers = data.ice_servers ?? iceServersRef.current
           await startWebRTC(servers)
         } else if (data.status === 'skipped' || data.status === 'expired') {
@@ -308,14 +352,22 @@ export function useCustomerCall(clientId: string): CustomerCallState {
         // keep polling on network errors
       }
     }, 1000)
-  }, [phase, startWaitTick, stopPoll, stopWaitTick, startWebRTC])
+  }, [phase, startWaitTick, stopPoll, stopWaitTick, startWebRTC, setSearchParams])
 
   // ---------------------------------------------------------------------------
   // endCall()
   // ---------------------------------------------------------------------------
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
     if (dcRef.current?.readyState === 'open') {
       dcRef.current.send(JSON.stringify({ type: 'end_call' }))
+    }
+    const token = customerTokenRef.current
+    if (token) {
+      try {
+        await fetch(`/api/customer/call/${token}/end`, { method: 'POST' })
+      } catch {
+        // non-fatal — local teardown still happens
+      }
     }
     teardown()
     setPhase('ended')

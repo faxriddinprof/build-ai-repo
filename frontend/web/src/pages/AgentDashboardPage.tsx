@@ -1,5 +1,6 @@
 import type React from 'react'
 import { useRef, useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useCallSession } from '../hooks/useCallSession'
 import { useScriptedSession } from '../hooks/useScriptedSession'
 import { useQueue } from '../hooks/useQueue'
@@ -8,6 +9,7 @@ import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
 import { DEMO_TIMELINE } from '../data/demoTimeline'
 import { fmtTime, maskPhone } from '../lib/format'
+import api from '../lib/api'
 
 import { Logo } from '../components/primitives/Logo'
 import { Avatar } from '../components/primitives/Avatar'
@@ -33,6 +35,7 @@ export default function AgentDashboardPage() {
   const demoEnabled = useDemoModeStore((s) => s.enabled)
   const logout = useAuthStore((s) => s.logout)
   const { theme, setTheme } = useThemeStore()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const realSession = useCallSession()
   const demoSession = useScriptedSession()
@@ -44,6 +47,35 @@ export default function AgentDashboardPage() {
   const [copyToast, setCopyToast] = useState(false)
   const copyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [queueOpen, setQueueOpen] = useState(true)
+  const [aiEnabled, setAiEnabled] = useState(true)
+  const [acceptError, setAcceptError] = useState<string | null>(null)
+  const acceptErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Resume call from URL param on page refresh (real mode only)
+  useEffect(() => {
+    if (demoEnabled) return
+    const callId = searchParams.get('call_id')
+    if (!callId) return
+    api.get<{ ended_at: string | null }>(`/api/calls/${callId}`)
+      .then(({ data }) => {
+        if (!data.ended_at) {
+          realSession.start(callId)
+        } else {
+          setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+        }
+      })
+      .catch(() => {
+        setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Clear call_id param whenever session ends for any reason
+  useEffect(() => {
+    if (!demoEnabled && session.status === 'ended') {
+      setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+    }
+  }, [session.status, demoEnabled, setSearchParams])
 
   const handleCopy = useCallback(() => {
     if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current)
@@ -60,22 +92,39 @@ export default function AgentDashboardPage() {
   // Accept flow
   const handleAccept = useCallback(
     async (queueId: string) => {
-      const { callId } = await accept(queueId)
-      session.start(callId)
+      try {
+        const { callId } = await accept(queueId)
+        if (!demoEnabled) {
+          setSearchParams({ call_id: callId }, { replace: true })
+        }
+        session.start(callId)
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status
+        const msg = status === 409
+          ? "Avval joriy qo'ng'iroqni yakunlang"
+          : "Qabul qilib bo'lmadi"
+        if (acceptErrorTimerRef.current) clearTimeout(acceptErrorTimerRef.current)
+        setAcceptError(msg)
+        acceptErrorTimerRef.current = setTimeout(() => setAcceptError(null), 3000)
+      }
     },
-    [accept, session],
+    [accept, demoEnabled, session, setSearchParams],
   )
 
   // End call
   const handleEndCall = useCallback(() => {
     session.endCall()
-  }, [session])
+    if (!demoEnabled) {
+      setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+    }
+  }, [demoEnabled, session, setSearchParams])
 
-  // Reset after summary close — returns to idle so IncomingCallModal can show again
+  // Reset after summary close
   const handleSummaryClose = useCallback(() => {
     realSession.reset()
     demoSession.reset()
-  }, [realSession, demoSession])
+    setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
+  }, [realSession, demoSession, setSearchParams])
 
   // Determine compliance items to show
   const complianceItems = DEMO_TIMELINE.compliance
@@ -335,18 +384,76 @@ export default function AgentDashboardPage() {
         {/* Right: Suggestions */}
         <section style={suggestionPanelStyle}>
           <div style={{ ...panelHeaderStyle, background: 'var(--surface-2)' }}>
-            <Icon name="sparkles" size={15} style={{ color: 'var(--ai-glow)' }} />
-            <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>AI Tavsiyalar</span>
-            {session.suggestions.length > 0 && (
+            <Icon name="sparkles" size={15} style={{ color: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)' }} />
+            <span style={{ fontWeight: 600, fontSize: 14, flex: 1, color: aiEnabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+              AI Tavsiyalar
+            </span>
+            {aiEnabled && session.suggestions.length > 0 && (
               <Badge tone="ai" size="sm">{session.suggestions.length}</Badge>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-              ~1.4s kechikish
-            </span>
+            {aiEnabled && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                ~1.4s kechikish
+              </span>
+            )}
+            {/* AI toggle */}
+            <button
+              onClick={() => setAiEnabled((v) => !v)}
+              title={aiEnabled ? "AI yordamini o'chirish" : "AI yordamini yoqish"}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 10px',
+                borderRadius: 'var(--r-full)',
+                border: `1px solid ${aiEnabled ? 'var(--ai-glow)' : 'var(--border-default)'}`,
+                background: aiEnabled ? 'var(--ai-glow-soft)' : 'var(--surface-1)',
+                color: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+                letterSpacing: '0.02em',
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)',
+                  transition: 'background 150ms ease',
+                }}
+              />
+              {aiEnabled ? 'Yoqilgan' : "O'chirilgan"}
+            </button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {session.suggestions.length === 0 ? (
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            opacity: aiEnabled ? 1 : 0.4,
+            pointerEvents: aiEnabled ? 'auto' : 'none',
+            transition: 'opacity 200ms ease',
+          }}>
+            {!aiEnabled ? (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                gap: 10,
+                color: 'var(--text-muted)',
+              }}>
+                <Icon name="sparkles" size={28} style={{ opacity: 0.3 }} />
+                <span style={{ fontSize: 13 }}>AI yordami o'chirilgan</span>
+              </div>
+            ) : session.suggestions.length === 0 ? (
               <SuggestionCard variant="empty" />
             ) : (
               session.suggestions.map((sg) => (
@@ -361,6 +468,28 @@ export default function AgentDashboardPage() {
               ))
             )}
           </div>
+
+          {/* Accept error toast */}
+          {acceptError && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 80,
+                right: 296,
+                background: 'var(--danger)',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 600,
+                padding: '8px 16px',
+                borderRadius: 'var(--r-full)',
+                boxShadow: 'var(--shadow-floating)',
+                animation: 'slide-in-top 200ms var(--ease-spring) both',
+                pointerEvents: 'none',
+              }}
+            >
+              {acceptError}
+            </div>
+          )}
 
           {/* Copy toast */}
           {copyToast && (
