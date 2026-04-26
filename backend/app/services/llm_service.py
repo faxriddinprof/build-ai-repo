@@ -62,11 +62,13 @@ async def chat(
 async def get_suggestion(
     customer_text: str,
     rag_context: str = "",
+    client_facts: str = "",
 ) -> AsyncIterator[str]:
     """Stream suggestion tokens. Returns empty if language assertion fails twice."""
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": SUGGESTION_TEMPLATE.format(
+            client_facts=client_facts,
             customer_text=customer_text,
             rag_context=rag_context or "Mavjud emas.",
         )},

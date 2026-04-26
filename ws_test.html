@@ -2,297 +2,1144 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>AI Sales Copilot — WebSocket Test [DEPRECATED]</title>
+  <title>SQB AI Copilot — Dev Harness</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: monospace; background: #0f0f0f; color: #e0e0e0; padding: 16px; }
-    h1 { font-size: 1rem; color: #7aa2f7; margin-bottom: 12px; }
-    .deprecated { background: #3d1f00; border: 1px solid #f0a000; color: #f0c060;
-                  padding: 10px 14px; margin-bottom: 14px; font-size: 0.85rem; border-radius: 4px; }
-    .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
-    input, select { background: #1a1a2e; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px;
-                    font-family: monospace; font-size: 0.85rem; border-radius: 4px; }
-    input[type=text] { flex: 1; min-width: 200px; }
-    button { background: #364fc7; color: #fff; border: none; padding: 6px 14px; border-radius: 4px;
-             cursor: pointer; font-family: monospace; font-size: 0.85rem; white-space: nowrap; }
-    button:disabled { opacity: 0.4; cursor: default; }
-    button.danger { background: #c0392b; }
-    button.green { background: #27ae60; }
-    #log { background: #111; border: 1px solid #222; border-radius: 4px; padding: 10px;
-           height: 420px; overflow-y: auto; font-size: 0.8rem; line-height: 1.6; margin-top: 8px; }
-    .msg { padding: 2px 0; border-bottom: 1px solid #1a1a1a; }
-    .ts  { color: #555; }
-    .dir-out { color: #f0a500; }
-    .dir-in  { color: #7aa2f7; }
-    .ev-transcript  { color: #b5e48c; }
-    .ev-suggestion  { color: #f7b731; font-weight: bold; }
-    .ev-sentiment   { color: #a29bfe; }
-    .ev-compliance  { color: #fd9644; }
-    .ev-intake      { color: #55efc4; }
-    .ev-summary     { color: #74b9ff; }
-    .ev-error       { color: #ff6b6b; }
-    .ev-status      { color: #636e72; }
-    .section { margin-top: 14px; padding-top: 10px; border-top: 1px solid #222; }
-    label { font-size: 0.8rem; color: #888; margin-right: 4px; }
-    #status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-                  background: #c0392b; margin-right: 6px; vertical-align: middle; }
-    #status-dot.connected { background: #27ae60; }
-    #audioBars { display: flex; align-items: flex-end; gap: 2px; height: 30px; margin-top: 4px; }
-    #audioBars span { width: 4px; background: #364fc7; border-radius: 2px 2px 0 0;
-                      transition: height 0.05s; display: inline-block; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:monospace;background:#0d0d14;color:#dde;font-size:13px}
+    /* layout */
+    #root{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+    #topbar{background:#111827;border-bottom:1px solid #1f2937;padding:8px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+    #topbar h1{font-size:.9rem;color:#7aa2f7;white-space:nowrap}
+    .badge{background:#1f2937;border:1px solid #374151;border-radius:4px;padding:2px 8px;font-size:.75rem;white-space:nowrap}
+    .badge.on{border-color:#22c55e;color:#22c55e}
+    .badge.off{border-color:#ef4444;color:#ef4444}
+    .badge.warn{border-color:#f59e0b;color:#f59e0b}
+    #body{display:flex;flex:1;overflow:hidden}
+    /* tabs */
+    #tabs{width:140px;background:#111827;border-right:1px solid #1f2937;flex-shrink:0;overflow-y:auto}
+    #tabs button{display:block;width:100%;text-align:left;background:none;border:none;padding:10px 14px;color:#9ca3af;cursor:pointer;font-family:monospace;font-size:.8rem;border-left:2px solid transparent}
+    #tabs button:hover{color:#dde;background:#1f2937}
+    #tabs button.active{color:#7aa2f7;border-left-color:#7aa2f7;background:#1a2035}
+    /* main + log split */
+    #main-log{display:flex;flex:1;overflow:hidden}
+    #panels{flex:1;overflow-y:auto;padding:14px}
+    .panel{display:none}
+    .panel.active{display:block}
+    /* log panel */
+    #logWrap{width:420px;display:flex;flex-direction:column;border-left:1px solid #1f2937;flex-shrink:0}
+    #logHead{background:#111827;border-bottom:1px solid #1f2937;padding:6px 10px;display:flex;align-items:center;gap:6px}
+    #logHead span{font-size:.75rem;color:#9ca3af;flex:1}
+    #logHead button{background:none;border:1px solid #374151;color:#9ca3af;padding:2px 8px;border-radius:3px;cursor:pointer;font-family:monospace;font-size:.75rem}
+    #logHead button:hover{color:#dde;border-color:#6b7280}
+    #log{flex:1;overflow-y:auto;padding:8px 10px;background:#0a0a12}
+    .entry{padding:2px 0;border-bottom:1px solid #111;font-size:.75rem;line-height:1.5}
+    .ts{color:#4b5563}
+    .arr-in{color:#60a5fa}
+    .arr-out{color:#f59e0b}
+    /* event colors */
+    .ev-call_started,.ev-call_ended{color:#a3e635}
+    .ev-transcript,.ev-transcript_chunk{color:#86efac}
+    .ev-suggestion{color:#fbbf24;font-weight:bold}
+    .ev-sentiment{color:#c084fc}
+    .ev-compliance_tick{color:#fb923c}
+    .ev-intake_proposal{color:#34d399}
+    .ev-summary_ready{color:#38bdf8}
+    .ev-recommendation{color:#f472b6;font-weight:bold}
+    .ev-live_script{color:#e879f9;font-weight:bold}
+    .ev-queue_added,.ev-queue_accepted,.ev-queue_skipped{color:#67e8f9}
+    .ev-error{color:#f87171}
+    .ev-status{color:#6b7280}
+    .ev-info{color:#9ca3af}
+    /* widgets */
+    .row{display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap}
+    .field{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+    .field label{font-size:.75rem;color:#9ca3af}
+    input[type=text],input[type=password],input[type=email],textarea,select{
+      background:#1f2937;border:1px solid #374151;color:#dde;padding:6px 10px;
+      font-family:monospace;font-size:.8rem;border-radius:4px;width:100%}
+    textarea{resize:vertical;min-height:60px}
+    input[type=text]:focus,textarea:focus,select:focus{outline:none;border-color:#7aa2f7}
+    button{background:#1d4ed8;color:#fff;border:none;padding:5px 12px;border-radius:4px;
+           cursor:pointer;font-family:monospace;font-size:.8rem;white-space:nowrap}
+    button:hover{background:#2563eb}
+    button:disabled{opacity:.4;cursor:default}
+    button.danger{background:#991b1b}
+    button.danger:hover{background:#b91c1c}
+    button.green{background:#166534}
+    button.green:hover{background:#15803d}
+    button.gray{background:#374151}
+    button.gray:hover{background:#4b5563}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:6px;padding:10px 12px;margin-bottom:8px}
+    .card h3{font-size:.8rem;color:#7aa2f7;margin-bottom:6px}
+    .info-row{display:flex;gap:4px;margin-bottom:4px;font-size:.75rem}
+    .info-row .k{color:#6b7280;width:120px;flex-shrink:0}
+    .info-row .v{color:#dde;word-break:break-all}
+    .sep{border:none;border-top:1px solid #1f2937;margin:10px 0}
+    .warn-box{background:#1c1107;border:1px solid #92400e;color:#fcd34d;padding:8px 12px;border-radius:4px;font-size:.75rem;margin-bottom:8px}
+    .ok-box{background:#052e16;border:1px solid #166534;color:#86efac;padding:8px 12px;border-radius:4px;font-size:.75rem;margin-bottom:8px}
+    table{width:100%;border-collapse:collapse;font-size:.75rem}
+    th{text-align:left;color:#6b7280;border-bottom:1px solid #1f2937;padding:4px 6px}
+    td{padding:4px 6px;border-bottom:1px solid #111;vertical-align:top}
+    td:first-child{color:#9ca3af}
+    .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#374151;margin-right:4px}
+    .dot.green{background:#22c55e}
+    .dot.red{background:#ef4444}
+    .dot.yellow{background:#f59e0b}
+    #audioBars{display:flex;align-items:flex-end;gap:2px;height:24px}
+    #audioBars span{width:4px;background:#1d4ed8;border-radius:2px 2px 0 0;transition:height .05s;display:inline-block}
+    .subtabs{display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid #1f2937}
+    .subtabs button{background:none;border:none;border-bottom:2px solid transparent;
+                    padding:6px 14px;color:#6b7280;cursor:pointer;font-family:monospace;font-size:.8rem}
+    .subtabs button:hover{color:#dde}
+    .subtabs button.active{color:#7aa2f7;border-bottom-color:#7aa2f7}
   </style>
 </head>
 <body>
+<div id="root">
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <h1>SQB AI Copilot · Dev Harness</h1>
+    <span class="badge off" id="b-webrtc">WebRTC: off</span>
+    <span class="badge off" id="b-rest">REST: off</span>
+    <span class="badge off" id="b-supws">Supervisor WS: off</span>
+    <span class="badge warn" id="b-call" style="display:none">call: –</span>
+    <span class="badge warn" id="b-ctok" style="display:none">cust-token</span>
+    <span style="flex:1"></span>
+    <span class="badge" id="b-role">not logged in</span>
+  </div>
+  <div id="body">
+    <!-- TABS NAV -->
+    <div id="tabs">
+      <button class="active" onclick="switchTab('auth')">Auth &amp; Health</button>
+      <button onclick="switchTab('customer')">Customer</button>
+      <button onclick="switchTab('queue')">Queue</button>
+      <button onclick="switchTab('calls')">Calls</button>
+      <button onclick="switchTab('live')">Live Agent</button>
+      <button onclick="switchTab('supervisor')">Supervisor</button>
+      <button onclick="switchTab('docs')">Admin Docs</button>
+      <button onclick="switchTab('demo')">Demo</button>
+    </div>
+    <!-- PANELS + LOG -->
+    <div id="main-log">
+      <div id="panels">
 
-<div class="deprecated">
-  ⚠ DEPRECATED — this file tests the old <code>/ws/audio</code> WebSocket endpoint which has been removed.<br>
-  The new real-time path is WebRTC via <code>/ws/signaling</code> + DataChannel, with REST fallback at
-  <code>POST /api/transcribe-chunk</code>. See <code>backend/docs/SIGNALING.md</code> for the full frontend integration guide.
-</div>
-<h1>🎙 AI Sales Copilot — WebSocket Test [DEPRECATED]</h1>
+        <!-- ─── AUTH & HEALTH ─── -->
+        <div class="panel active" id="panel-auth">
+          <div class="card">
+            <h3>Connection</h3>
+            <div class="field"><label>API Base URL</label>
+              <input type="text" id="apiBase" value="http://localhost:8000" oninput="persist()">
+            </div>
+            <div class="row">
+              <button class="gray" onclick="doHealth()">GET /healthz</button>
+              <button class="gray" onclick="doMe()">GET /me</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Login</h3>
+            <div class="row">
+              <div class="field" style="flex:1"><label>Email</label>
+                <input type="text" id="email" value="admin@bank.uz">
+              </div>
+              <div class="field" style="flex:1"><label>Password</label>
+                <input type="password" id="password" value="changeme">
+              </div>
+            </div>
+            <div class="row">
+              <button class="green" onclick="doLogin()">Login</button>
+              <button class="gray" onclick="doRefresh()">Refresh token</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Tokens (editable)</h3>
+            <div class="field"><label>Access token</label>
+              <textarea id="accessToken" rows="3" oninput="persist()"></textarea>
+            </div>
+            <div class="field"><label>Refresh token</label>
+              <textarea id="refreshToken" rows="2" oninput="persist()"></textarea>
+            </div>
+          </div>
+        </div>
 
-<!-- AUTH -->
-<div class="section">
-  <div class="row">
-    <label>API Base:</label>
-    <input type="text" id="apiBase" value="http://localhost:8000">
-    <label>Email:</label>
-    <input type="text" id="email" value="admin@bank.local" style="flex:0;width:160px">
-    <label>Password:</label>
-    <input type="text" id="password" value="changeme" style="flex:0;width:120px">
-    <button onclick="login()">Login →</button>
-  </div>
-  <div class="row">
-    <label>Token:</label>
-    <input type="text" id="token" placeholder="paste JWT or click Login →">
-    <label>Role:</label>
-    <select id="wsRole">
-      <option value="audio">agent  (/ws/audio)</option>
-      <option value="supervisor">supervisor (/ws/supervisor)</option>
-    </select>
-    <button id="btnConnect" class="green" onclick="connect()">Connect WS</button>
-    <button id="btnDisconnect" class="danger" onclick="disconnect()" disabled>Disconnect</button>
-  </div>
-  <div class="row">
-    <span id="status-dot"></span><span id="statusText" style="font-size:0.8rem">Disconnected</span>
-  </div>
-</div>
+        <!-- ─── CUSTOMER ─── -->
+        <div class="panel" id="panel-customer">
+          <div class="warn-box">
+            Customer-side WebRTC is not wired — <code>/ws/signaling</code> rejects <code>role=customer</code> JWTs.
+            This tab shows the customer flow up to <strong>accepted</strong> status + ICE servers.
+          </div>
+          <div class="card">
+            <h3>Public page (by client_id)</h3>
+            <div class="field"><label>client_id (UUID from DB)</label>
+              <input type="text" id="clientId" placeholder="paste UUID" oninput="persist()">
+            </div>
+            <div class="row">
+              <button onclick="doClientPage()">GET /customer/{id}/call</button>
+            </div>
+          </div>
+          <hr class="sep">
+          <div class="card">
+            <h3>Manual initiate (no client_id)</h3>
+            <div class="row">
+              <div class="field" style="flex:1"><label>masked_phone</label>
+                <input type="text" id="initPhone" value="+998 90 ••• 12 34">
+              </div>
+              <div class="field" style="flex:1"><label>region</label>
+                <input type="text" id="initRegion" value="Toshkent">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field" style="flex:1"><label>topic</label>
+                <input type="text" id="initTopic" value="Premium Plus karta">
+              </div>
+              <div class="field"><label>priority</label>
+                <select id="initPriority"><option>normal</option><option>high</option><option>vip</option></select>
+              </div>
+            </div>
+            <button onclick="doInitiate()">POST /api/customer/call/initiate</button>
+          </div>
+          <hr class="sep">
+          <div class="card">
+            <h3>Poll status</h3>
+            <div class="field"><label>customer_token (JWT — auto-filled from above)</label>
+              <textarea id="customerToken" rows="2"></textarea>
+            </div>
+            <div class="row">
+              <button onclick="startStatusPoll()">Start polling (2 s)</button>
+              <button class="danger" onclick="stopStatusPoll()">Stop poll</button>
+              <span id="pollBadge" class="badge" style="display:none">polling…</span>
+            </div>
+          </div>
+        </div>
 
-<!-- CONTROLS -->
-<div class="section" id="agentControls">
-  <div class="row">
-    <button id="btnStartCall" onclick="startCall()" disabled>start_call</button>
-    <button id="btnEndCall" onclick="endCall()" disabled>end_call</button>
-    <button id="btnTriggerExtract" onclick="triggerExtract()" disabled>trigger_intake_extraction</button>
-  </div>
+        <!-- ─── QUEUE ─── -->
+        <div class="panel" id="panel-queue">
+          <div class="card">
+            <h3>Pending queue</h3>
+            <div class="row">
+              <button onclick="doQueueList()">Refresh queue</button>
+            </div>
+            <div id="queueTable" style="margin-top:8px"></div>
+          </div>
+          <div class="card">
+            <h3>Skip reason</h3>
+            <div class="row">
+              <div class="field"><label>reason</label>
+                <select id="skipReason">
+                  <option>not_interested</option><option>callback</option>
+                  <option>wrong_number</option><option>other</option>
+                </select>
+              </div>
+              <div class="field" style="flex:1"><label>note</label>
+                <input type="text" id="skipNote" placeholder="optional">
+              </div>
+            </div>
+          </div>
+        </div>
 
-  <!-- MIC -->
-  <div class="row" style="margin-top:8px">
-    <button id="btnMic" onclick="toggleMic()" disabled>🎤 Start mic stream</button>
-    <label>Sample rate:</label>
-    <select id="sampleRate">
-      <option value="16000" selected>16000 Hz</option>
-      <option value="44100">44100 Hz</option>
-      <option value="48000">48000 Hz</option>
-    </select>
-    <label style="margin-left:8px">Chunk ms:</label>
-    <select id="chunkMs">
-      <option value="100" selected>100 ms</option>
-      <option value="250">250 ms</option>
-      <option value="500">500 ms</option>
-    </select>
-  </div>
-  <div id="audioBars">
-    <span></span><span></span><span></span><span></span><span></span>
-    <span></span><span></span><span></span><span></span><span></span>
-  </div>
+        <!-- ─── CALLS ─── -->
+        <div class="panel" id="panel-calls">
+          <div class="card">
+            <h3>Create call (blank, no queue)</h3>
+            <div class="row">
+              <div class="field" style="flex:1"><label>customer_name</label>
+                <input type="text" id="callName">
+              </div>
+              <div class="field" style="flex:1"><label>customer_phone</label>
+                <input type="text" id="callPhone">
+              </div>
+            </div>
+            <button onclick="doCreateCall()">POST /api/calls</button>
+          </div>
+          <div class="card">
+            <h3>My calls</h3>
+            <div class="row">
+              <button onclick="doListCalls()">Refresh</button>
+            </div>
+            <div id="callsTable" style="margin-top:8px"></div>
+          </div>
+          <div class="card">
+            <h3>Intake patch</h3>
+            <div class="field"><label>call_id</label>
+              <input type="text" id="intakeCallId" placeholder="auto-filled on queue accept">
+            </div>
+            <div class="row">
+              <div class="field" style="flex:1"><label>name</label><input type="text" id="intakeName"></div>
+              <div class="field" style="flex:1"><label>passport</label><input type="text" id="intakePassport"></div>
+              <div class="field" style="flex:1"><label>region</label><input type="text" id="intakeRegion"></div>
+            </div>
+            <button onclick="doIntake()">PATCH /api/calls/{id}/intake</button>
+            &nbsp;
+            <button class="danger" onclick="doEndCall()">POST /api/calls/{id}/end</button>
+          </div>
+        </div>
 
-  <!-- Manual text send -->
-  <div class="row" style="margin-top:8px">
-    <label>Raw JSON:</label>
-    <input type="text" id="rawJson" placeholder='{"type":"audio_chunk","pcm_b64":"...","sample_rate":16000}'>
-    <button onclick="sendRaw()" id="btnSendRaw" disabled>Send</button>
-  </div>
-</div>
+        <!-- ─── LIVE AGENT ─── -->
+        <div class="panel" id="panel-live">
+          <div class="subtabs">
+            <button class="active" onclick="switchSubtab('webrtc')">WebRTC</button>
+            <button onclick="switchSubtab('restfb')">REST Fallback</button>
+          </div>
 
-<!-- LOG -->
-<div id="log"></div>
-<div class="row" style="margin-top:6px">
-  <button onclick="clearLog()">Clear log</button>
-  <button onclick="healthCheck()">GET /healthz</button>
-  <button onclick="getMe()">GET /me</button>
+          <!-- WebRTC subtab -->
+          <div id="sub-webrtc">
+            <div class="card">
+              <h3>WebRTC (agent side) — DataChannel "transcripts"</h3>
+              <div class="row">
+                <div class="field" style="flex:1"><label>call_id (optional — from queue Accept)</label>
+                  <input type="text" id="rtcCallId">
+                </div>
+                <div class="field"><label>lang_hint</label>
+                  <select id="rtcLang"><option value="uz">uz</option><option value="ru">ru</option></select>
+                </div>
+              </div>
+              <div class="row">
+                <button class="green" id="btnConnect" onclick="doWebRTC()">Start WebRTC</button>
+                <button class="danger" id="btnDisconnect" onclick="stopWebRTC()" disabled>Stop</button>
+                <button id="btnStartCall" onclick="sendDC({type:'start_call',call_id:g('rtcCallId')||undefined,language_hint:g('rtcLang')})" disabled>start_call</button>
+                <button id="btnIntakeExt" onclick="sendDC({type:'trigger_intake_extraction'})" disabled>trigger_intake</button>
+                <button id="btnEndDC" onclick="sendDC({type:'end_call'})" disabled>end_call</button>
+              </div>
+              <div class="row" style="margin-top:4px;gap:14px;font-size:.75rem">
+                <span>PC: <span id="pcState" class="badge">—</span></span>
+                <span>ICE: <span id="iceState" class="badge">—</span></span>
+                <span>DC: <span id="dcState" class="badge">—</span></span>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Microphone</h3>
+              <div class="row">
+                <button id="btnMic" onclick="toggleMic()" disabled>🎤 Open mic</button>
+                <div id="audioBars"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
+            </div>
+            <div class="warn-box" style="font-size:.75rem">
+              <strong>Note:</strong> <code>recommendation</code> + <code>live_script</code> DC events only fire when
+              a <code>client_id</code> is associated with the call via the Queue→Accept flow.
+              Direct DC calls without client_id will not produce these events.
+            </div>
+          </div>
+
+          <!-- REST fallback subtab -->
+          <div id="sub-restfb" style="display:none">
+            <div class="card">
+              <h3>REST fallback — POST /api/transcribe-chunk (MediaRecorder → 2 s slices)</h3>
+              <div class="row">
+                <div class="field" style="flex:1"><label>call_id</label>
+                  <input type="text" id="restCallId">
+                </div>
+                <div class="field"><label>lang_hint</label>
+                  <select id="restLang"><option value="uz">uz</option><option value="ru">ru</option></select>
+                </div>
+              </div>
+              <div class="row">
+                <button class="green" id="btnRestStart" onclick="startRestFallback()">Start recording</button>
+                <button class="danger" id="btnRestStop" onclick="stopRestFallback()" disabled>Stop</button>
+                <button id="btnRestFinal" onclick="sendFinalChunk()" disabled>Send final chunk</button>
+              </div>
+              <div class="info-row" style="margin-top:4px">
+                <span class="k">bytes sent:</span>
+                <span class="v" id="restBytesSent">0</span>
+              </div>
+              <div class="warn-box" style="margin-top:8px;font-size:.75rem">
+                REST path does <strong>not</strong> inline <code>intake_proposal</code>, <code>recommendation</code>,
+                or <code>live_script</code> events — those go via the DataChannel/supervisor WS only.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─── SUPERVISOR ─── -->
+        <div class="panel" id="panel-supervisor">
+          <div class="card">
+            <h3>Supervisor WebSocket — /ws/supervisor</h3>
+            <p style="font-size:.75rem;color:#6b7280;margin-bottom:8px">
+              Requires supervisor or admin JWT. Events land in the log panel with ← prefix.
+            </p>
+            <div class="row">
+              <button class="green" id="btnSupConnect" onclick="connectSupWS()">Connect WS</button>
+              <button class="danger" id="btnSupDisconnect" onclick="disconnectSupWS()" disabled>Disconnect</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Supervisor REST</h3>
+            <div class="row">
+              <button onclick="doSupActive()">GET /active</button>
+              <button onclick="doSupHistory()">GET /history</button>
+              <div class="field"><label>outcome filter</label>
+                <select id="supOutcome" style="width:auto">
+                  <option value="">all</option><option>won</option><option>lost</option><option>callback</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="margin-top:4px">
+              <div class="field" style="flex:1"><label>call_id for transcript</label>
+                <input type="text" id="supTransCallId">
+              </div>
+              <button onclick="doSupTranscript()" style="align-self:flex-end">GET transcript</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─── ADMIN DOCS ─── -->
+        <div class="panel" id="panel-docs">
+          <div class="card">
+            <h3>Upload document (PDF/TXT)</h3>
+            <div class="field"><label>File</label>
+              <input type="file" id="docFile" accept=".pdf,.txt" style="background:none;border:none;padding:0;color:#dde">
+            </div>
+            <div class="field"><label>tag (optional)</label>
+              <input type="text" id="docTag" placeholder="e.g. cards, loans">
+            </div>
+            <button onclick="doDocUpload()">Upload</button>
+          </div>
+          <div class="card">
+            <h3>Documents</h3>
+            <div class="row"><button onclick="doDocList()">Refresh</button></div>
+            <div id="docsTable" style="margin-top:8px"></div>
+          </div>
+        </div>
+
+        <!-- ─── DEMO ─── -->
+        <div class="panel" id="panel-demo">
+          <div class="card">
+            <h3>Demo scenarios</h3>
+            <div class="row"><button onclick="doDemoList()">List scenarios</button></div>
+            <div id="scenariosOut" style="margin-top:8px"></div>
+          </div>
+          <div class="card">
+            <h3>Play scenario</h3>
+            <div class="row">
+              <div class="field" style="flex:1"><label>call_id</label>
+                <input type="text" id="demoCallId">
+              </div>
+              <div class="field"><label>scenario_id</label>
+                <input type="text" id="demoScenarioId" value="1" style="width:60px">
+              </div>
+              <button onclick="doDemoPlay()" style="align-self:flex-end">Play</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /panels -->
+
+      <!-- LOG PANEL -->
+      <div id="logWrap">
+        <div id="logHead">
+          <span>Event log</span>
+          <button onclick="togglePretty()" id="prettyBtn">pretty: off</button>
+          <button onclick="downloadLog()">save</button>
+          <button onclick="clearLog()">clear</button>
+        </div>
+        <div id="log"></div>
+      </div>
+
+    </div><!-- /main-log -->
+  </div>
 </div>
 
 <script>
-  let ws = null;
-  let audioCtx = null, mediaStream = null, processor = null, micActive = false;
-  const bars = document.querySelectorAll('#audioBars span');
+// ─── STATE ─────────────────────────────────────────────────────────────────
+let _state = {
+  apiBase: localStorage.getItem('apiBase') || 'http://localhost:8000',
+  accessToken: localStorage.getItem('accessToken') || '',
+  refreshToken: localStorage.getItem('refreshToken') || '',
+  clientId: localStorage.getItem('clientId') || '',
+};
+let customerToken = null;
+let currentCallId = null;
+let pollTimer = null;
+let supWS = null;
+let pc = null, dc = null, sigWS = null, micStream = null, audioCtx = null, micProcessor = null;
+let recorder = null, restBytesSent = 0, restStream = null;
+let prettyMode = false;
+const bars = document.querySelectorAll('#audioBars span');
 
-  function ts() {
-    return new Date().toLocaleTimeString('en-US', {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:2});
-  }
+// ─── INIT ───────────────────────────────────────────────────────────────────
+window.onload = () => {
+  document.getElementById('apiBase').value = _state.apiBase;
+  document.getElementById('accessToken').value = _state.accessToken;
+  document.getElementById('refreshToken').value = _state.refreshToken;
+  document.getElementById('clientId').value = _state.clientId;
+};
 
-  function log(cls, dir, text) {
-    const el = document.getElementById('log');
-    const d = document.createElement('div');
-    d.className = `msg ${cls}`;
-    d.innerHTML = `<span class="ts">[${ts()}]</span> <span class="${dir}">${dir==='dir-out'?'→':'←'}</span> ${escHtml(text)}`;
-    el.appendChild(d);
-    el.scrollTop = el.scrollHeight;
-  }
+function persist() {
+  _state.apiBase = document.getElementById('apiBase').value.trim();
+  _state.accessToken = document.getElementById('accessToken').value.trim();
+  _state.refreshToken = document.getElementById('refreshToken').value.trim();
+  _state.clientId = document.getElementById('clientId').value.trim();
+  localStorage.setItem('apiBase', _state.apiBase);
+  localStorage.setItem('accessToken', _state.accessToken);
+  localStorage.setItem('refreshToken', _state.refreshToken);
+  localStorage.setItem('clientId', _state.clientId);
+}
 
-  function escHtml(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+function apiBase() { return document.getElementById('apiBase').value.trim(); }
+function token() { return document.getElementById('accessToken').value.trim(); }
+function g(id) { return document.getElementById(id).value.trim(); }
 
-  function clearLog() { document.getElementById('log').innerHTML = ''; }
+function authedFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (token()) headers['Authorization'] = `Bearer ${token()}`;
+  if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  return fetch(`${apiBase()}${path}`, { ...opts, headers });
+}
 
-  function setConnected(c) {
-    const dot = document.getElementById('status-dot');
-    dot.className = c ? 'connected' : '';
-    document.getElementById('statusText').textContent = c ? 'Connected' : 'Disconnected';
-    document.getElementById('btnConnect').disabled = c;
-    document.getElementById('btnDisconnect').disabled = !c;
-    document.getElementById('btnStartCall').disabled = !c;
-    document.getElementById('btnEndCall').disabled = !c;
-    document.getElementById('btnTriggerExtract').disabled = !c;
-    document.getElementById('btnMic').disabled = !c;
-    document.getElementById('btnSendRaw').disabled = !c;
-  }
+// ─── LOG ────────────────────────────────────────────────────────────────────
+function ts() {
+  return new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:1});
+}
 
-  async function login() {
-    const base = document.getElementById('apiBase').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const pass  = document.getElementById('password').value.trim();
-    try {
-      const r = await fetch(`${base}/api/auth/login`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({email, password: pass})
-      });
-      const j = await r.json();
-      if (j.access_token) {
-        document.getElementById('token').value = j.access_token;
-        log('ev-status', 'dir-in', `Login OK — role: ${j.role}`);
-      } else {
-        log('ev-error', 'dir-in', `Login failed: ${JSON.stringify(j)}`);
-      }
-    } catch(e) { log('ev-error', 'dir-in', `Login error: ${e}`); }
-  }
+function logEntry(cls, dir, text) {
+  const el = document.getElementById('log');
+  const d = document.createElement('div');
+  d.className = `entry ${cls}`;
+  const arrow = dir === 'out' ? '<span class="arr-out">→</span>' : '<span class="arr-in">←</span>';
+  d.innerHTML = `<span class="ts">[${ts()}]</span> ${arrow} ${escHtml(text)}`;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
 
-  function connect() {
-    const base = document.getElementById('apiBase').value.trim().replace(/^http/, 'ws');
-    const token = document.getElementById('token').value.trim();
-    const role  = document.getElementById('wsRole').value;
-    const path  = role === 'supervisor' ? '/ws/supervisor' : '/ws/audio';
-    const url   = `${base}${path}?token=${token}`;
+function logStatus(text) { logEntry('ev-status', 'in', text); }
+function logInfo(text) { logEntry('ev-info', 'in', text); }
+function logOut(text) { logEntry('arr-out', 'out', text); }
+function logErr(text) { logEntry('ev-error', 'in', '✖ ' + text); }
 
-    log('ev-status', 'dir-out', `Connecting to ${url}`);
-    ws = new WebSocket(url);
+function renderEvent(ev) {
+  const t = ev.type || 'unknown';
+  const cls = 'ev-' + t.replace(/-/g,'_');
+  const body = prettyMode ? JSON.stringify(ev, null, 2) : JSON.stringify(ev);
+  logEntry(cls, 'in', body);
+}
 
-    ws.onopen = () => { setConnected(true); log('ev-status', 'dir-in', 'WebSocket connected'); };
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
-    ws.onmessage = (e) => {
-      let cls = 'dir-in', evCls = '';
-      try {
-        const msg = JSON.parse(e.data);
-        const t = msg.type || '';
-        evCls = {
-          transcript:       'ev-transcript',
-          suggestion:       'ev-suggestion',
-          sentiment:        'ev-sentiment',
-          compliance_tick:  'ev-compliance',
-          intake_proposal:  'ev-intake',
-          summary_ready:    'ev-summary',
-          error:            'ev-error',
-        }[t] || '';
-        log(evCls, 'dir-in', JSON.stringify(msg));
-      } catch { log('', 'dir-in', e.data); }
+function clearLog() { document.getElementById('log').innerHTML = ''; }
+
+function togglePretty() {
+  prettyMode = !prettyMode;
+  document.getElementById('prettyBtn').textContent = `pretty: ${prettyMode ? 'on' : 'off'}`;
+}
+
+function downloadLog() {
+  const text = [...document.querySelectorAll('#log .entry')].map(e => e.textContent).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:'text/plain'}));
+  a.download = `sqb-log-${Date.now()}.txt`;
+  a.click();
+}
+
+// ─── TABS ────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+  document.getElementById(`panel-${name}`).classList.add('active');
+  document.querySelectorAll('#tabs button').forEach(b => {
+    if (b.textContent.trim().toLowerCase().startsWith(name.substring(0,4))) b.classList.add('active');
+  });
+}
+
+function switchSubtab(name) {
+  document.querySelectorAll('#panel-live .subtabs button').forEach(b => b.classList.remove('active'));
+  document.getElementById('sub-webrtc').style.display = name === 'webrtc' ? '' : 'none';
+  document.getElementById('sub-restfb').style.display = name === 'restfb' ? '' : 'none';
+  event.target.classList.add('active');
+}
+
+// ─── BADGES ──────────────────────────────────────────────────────────────────
+function setBadge(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = `badge ${cls}`;
+}
+
+function updateCallBadge(id) {
+  currentCallId = id;
+  const el = document.getElementById('b-call');
+  if (id) { el.style.display = ''; el.textContent = `call: ${id.substring(0,8)}…`; }
+  else el.style.display = 'none';
+}
+
+// ─── AUTH & HEALTH ────────────────────────────────────────────────────────────
+async function doLogin() {
+  try {
+    const r = await fetch(`${apiBase()}/api/auth/login`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({email: g('email'), password: g('password')}),
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Login ${r.status}: ${JSON.stringify(j)}`); return; }
+    document.getElementById('accessToken').value = j.access_token;
+    document.getElementById('refreshToken').value = j.refresh_token || '';
+    persist();
+    document.getElementById('b-role').textContent = j.role;
+    document.getElementById('b-role').className = 'badge on';
+    logStatus(`Login OK — role: ${j.role}`);
+  } catch(e) { logErr(`Login: ${e}`); }
+}
+
+async function doRefresh() {
+  try {
+    const r = await fetch(`${apiBase()}/api/auth/refresh`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({refresh_token: g('refreshToken')}),
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Refresh ${r.status}: ${JSON.stringify(j)}`); return; }
+    document.getElementById('accessToken').value = j.access_token;
+    persist();
+    logStatus('Token refreshed');
+  } catch(e) { logErr(`Refresh: ${e}`); }
+}
+
+async function doMe() {
+  try {
+    const r = await authedFetch('/api/auth/me');
+    const j = await r.json();
+    if (!r.ok) { logErr(`/me ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`/me → ${JSON.stringify(j)}`);
+  } catch(e) { logErr(`/me: ${e}`); }
+}
+
+async function doHealth() {
+  try {
+    const r = await fetch(`${apiBase()}/healthz`);
+    const j = await r.json();
+    logInfo(`/healthz → ${JSON.stringify(j)}`);
+  } catch(e) { logErr(`/healthz: ${e}`); }
+}
+
+// ─── CUSTOMER ────────────────────────────────────────────────────────────────
+async function doClientPage() {
+  const cid = g('clientId') || _state.clientId;
+  if (!cid) { logErr('Enter client_id'); return; }
+  try {
+    const r = await fetch(`${apiBase()}/customer/${cid}/call`);
+    const j = await r.json();
+    if (!r.ok) { logErr(`Customer page ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`/customer/${cid}/call → ${JSON.stringify(j)}`);
+    if (j.customer_token) {
+      document.getElementById('customerToken').value = j.customer_token;
+      customerToken = j.customer_token;
+      document.getElementById('b-ctok').style.display = '';
+    }
+    if (j.queue_id) logStatus(`Queue entry: ${j.queue_id}`);
+    if (j.display_name) logStatus(`Display: ${j.display_name} · ${j.masked_phone}`);
+  } catch(e) { logErr(`Client page: ${e}`); }
+}
+
+async function doInitiate() {
+  try {
+    const body = {
+      masked_phone: g('initPhone'), region: g('initRegion'),
+      topic: g('initTopic'), priority: g('initPriority'),
     };
+    const r = await fetch(`${apiBase()}/api/customer/call/initiate`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Initiate ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Initiate → ${JSON.stringify(j)}`);
+    if (j.customer_token) {
+      document.getElementById('customerToken').value = j.customer_token;
+      customerToken = j.customer_token;
+      document.getElementById('b-ctok').style.display = '';
+    }
+  } catch(e) { logErr(`Initiate: ${e}`); }
+}
 
-    ws.onerror = (e) => { log('ev-error', 'dir-in', `WS error`); };
-    ws.onclose = (e) => { setConnected(false); log('ev-status', 'dir-in', `WS closed (code ${e.code})`); stopMic(); };
-  }
-
-  function disconnect() { if (ws) ws.close(); }
-
-  function send(obj) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const s = JSON.stringify(obj);
-    ws.send(s);
-    if (obj.type !== 'audio_chunk') log('dir-out', 'dir-out', s);
-  }
-
-  function startCall()      { send({type:'start_call'}); }
-  function endCall()        { send({type:'end_call'}); }
-  function triggerExtract() { send({type:'trigger_intake_extraction'}); }
-
-  function sendRaw() {
-    const v = document.getElementById('rawJson').value.trim();
-    try { send(JSON.parse(v)); } catch(e) { log('ev-error','dir-out',`Invalid JSON: ${e}`); }
-  }
-
-  // ── MIC STREAMING ─────────────────────────────────────────────────────────
-  async function toggleMic() {
-    if (micActive) { stopMic(); return; }
+function startStatusPoll() {
+  const tok = document.getElementById('customerToken').value.trim();
+  if (!tok) { logErr('No customer_token'); return; }
+  document.getElementById('pollBadge').style.display = '';
+  logStatus('Status polling started (2 s)');
+  pollTimer = setInterval(async () => {
     try {
-      const sr = parseInt(document.getElementById('sampleRate').value);
-      mediaStream = await navigator.mediaDevices.getUserMedia({audio:{sampleRate:sr,channelCount:1,echoCancellation:true}});
-      audioCtx = new AudioContext({sampleRate: sr});
-      const source = audioCtx.createMediaStreamSource(mediaStream);
-      const chunkMs = parseInt(document.getElementById('chunkMs').value);
-      const bufSize = Math.pow(2, Math.round(Math.log2(sr * chunkMs / 1000)));
-      processor = audioCtx.createScriptProcessor(bufSize, 1, 1);
+      const r = await fetch(`${apiBase()}/api/customer/call/${tok}/status`);
+      const j = await r.json();
+      renderEvent({type: 'cust_status', ...j});
+      if (j.status === 'accepted') {
+        logStatus(`Call accepted! operator: ${j.operator}`);
+        stopStatusPoll();
+      }
+    } catch(e) { logErr(`Poll: ${e}`); stopStatusPoll(); }
+  }, 2000);
+}
 
-      processor.onaudioprocess = (ev) => {
-        const float32 = ev.inputBuffer.getChannelData(0);
-        // visualiser
-        const rms = Math.sqrt(float32.reduce((a,v)=>a+v*v,0)/float32.length);
-        bars.forEach((b,i) => {
-          const h = Math.min(30, Math.max(2, rms * 300 * (0.5 + Math.random() * 0.5)));
-          b.style.height = h + 'px';
-        });
-        // PCM int16 → base64
-        const int16 = new Int16Array(float32.length);
-        for (let i=0;i<float32.length;i++) int16[i] = Math.max(-32768, Math.min(32767, float32[i]*32768));
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(int16.buffer)));
-        send({type:'audio_chunk', pcm_b64: b64, sample_rate: sr});
-      };
+function stopStatusPoll() {
+  clearInterval(pollTimer); pollTimer = null;
+  document.getElementById('pollBadge').style.display = 'none';
+}
 
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
-      micActive = true;
-      document.getElementById('btnMic').textContent = '⏹ Stop mic';
-      log('ev-status', 'dir-out', `Mic started — ${sr} Hz, ${bufSize} samples/chunk`);
-    } catch(e) { log('ev-error','dir-out',`Mic error: ${e}`); }
+// ─── QUEUE ───────────────────────────────────────────────────────────────────
+async function doQueueList() {
+  try {
+    const r = await authedFetch('/api/queue');
+    const j = await r.json();
+    if (!r.ok) { logErr(`Queue ${r.status}: ${JSON.stringify(j)}`); return; }
+    renderQueueTable(j);
+    logInfo(`Queue: ${j.length} pending entries`);
+  } catch(e) { logErr(`Queue: ${e}`); }
+}
+
+function renderQueueTable(entries) {
+  if (!entries.length) { document.getElementById('queueTable').innerHTML = '<p style="color:#6b7280;font-size:.75rem">No pending entries</p>'; return; }
+  let html = '<table><tr><th>phone</th><th>region</th><th>topic</th><th>priority</th><th>wait</th><th></th></tr>';
+  entries.forEach(e => {
+    html += `<tr>
+      <td>${e.masked_phone}</td>
+      <td>${e.region||'—'}</td>
+      <td>${e.topic||'—'}</td>
+      <td>${e.priority}</td>
+      <td>${e.wait_time}s</td>
+      <td>
+        <button onclick="doQueueAccept('${e.id}')" style="padding:2px 8px;font-size:.7rem">Accept</button>
+        &nbsp;
+        <button class="danger" onclick="doQueueSkip('${e.id}')" style="padding:2px 8px;font-size:.7rem">Skip</button>
+      </td>
+    </tr>`;
+  });
+  html += '</table>';
+  document.getElementById('queueTable').innerHTML = html;
+}
+
+async function doQueueAccept(qid) {
+  try {
+    const r = await authedFetch(`/api/queue/${qid}/accept`, {method:'POST'});
+    const j = await r.json();
+    if (!r.ok) { logErr(`Accept ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Accepted → call_id: ${j.call_id}`);
+    updateCallBadge(j.call_id);
+    document.getElementById('rtcCallId').value = j.call_id || '';
+    document.getElementById('restCallId').value = j.call_id || '';
+    document.getElementById('intakeCallId').value = j.call_id || '';
+    document.getElementById('demoCallId').value = j.call_id || '';
+    doQueueList();
+  } catch(e) { logErr(`Accept: ${e}`); }
+}
+
+async function doQueueSkip(qid) {
+  const reason = g('skipReason');
+  const note = g('skipNote');
+  try {
+    const r = await authedFetch(`/api/queue/${qid}/skip`, {
+      method:'POST', body: JSON.stringify({reason, note: note||null}),
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Skip ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Skipped. Next: ${j.next ? j.next.masked_phone : 'none'}`);
+    doQueueList();
+  } catch(e) { logErr(`Skip: ${e}`); }
+}
+
+// ─── CALLS ───────────────────────────────────────────────────────────────────
+async function doCreateCall() {
+  try {
+    const body = {customer_name: g('callName')||null, customer_phone: g('callPhone')||null};
+    const r = await authedFetch('/api/calls', {method:'POST', body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) { logErr(`CreateCall ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Call created: ${j.id}`);
+    updateCallBadge(j.id);
+    document.getElementById('rtcCallId').value = j.id;
+    document.getElementById('restCallId').value = j.id;
+    document.getElementById('intakeCallId').value = j.id;
+    document.getElementById('demoCallId').value = j.id;
+  } catch(e) { logErr(`CreateCall: ${e}`); }
+}
+
+async function doListCalls() {
+  try {
+    const r = await authedFetch('/api/calls');
+    const j = await r.json();
+    if (!r.ok) { logErr(`ListCalls ${r.status}: ${JSON.stringify(j)}`); return; }
+    if (!j.length) { document.getElementById('callsTable').innerHTML = '<p style="color:#6b7280;font-size:.75rem">No calls</p>'; return; }
+    let html = '<table><tr><th>id</th><th>started</th><th>outcome</th><th>ended</th><th></th></tr>';
+    j.forEach(c => {
+      html += `<tr>
+        <td>${c.id.substring(0,8)}…</td>
+        <td>${c.started_at ? c.started_at.substring(11,19) : '—'}</td>
+        <td>${c.outcome||'—'}</td>
+        <td>${c.ended_at ? '✓' : '…'}</td>
+        <td><button onclick="setActiveCall('${c.id}')" style="padding:2px 8px;font-size:.7rem">Use</button></td>
+      </tr>`;
+    });
+    html += '</table>';
+    document.getElementById('callsTable').innerHTML = html;
+  } catch(e) { logErr(`ListCalls: ${e}`); }
+}
+
+function setActiveCall(id) {
+  updateCallBadge(id);
+  document.getElementById('rtcCallId').value = id;
+  document.getElementById('restCallId').value = id;
+  document.getElementById('intakeCallId').value = id;
+  document.getElementById('demoCallId').value = id;
+  logStatus(`Active call set: ${id}`);
+}
+
+async function doIntake() {
+  const cid = g('intakeCallId');
+  if (!cid) { logErr('No call_id'); return; }
+  const body = {};
+  const n = g('intakeName'); if (n) body.customer_name = n;
+  const p = g('intakePassport'); if (p) body.customer_passport = p;
+  const reg = g('intakeRegion'); if (reg) body.customer_region = reg;
+  try {
+    const r = await authedFetch(`/api/calls/${cid}/intake`, {method:'PATCH', body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) { logErr(`Intake ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Intake saved → intake_confirmed_at: ${j.intake_confirmed_at}`);
+  } catch(e) { logErr(`Intake: ${e}`); }
+}
+
+async function doEndCall() {
+  const cid = g('intakeCallId') || currentCallId;
+  if (!cid) { logErr('No call_id'); return; }
+  try {
+    const r = await authedFetch(`/api/calls/${cid}/end`, {method:'POST'});
+    const j = await r.json();
+    if (!r.ok) { logErr(`EndCall ${r.status}: ${JSON.stringify(j)}`); return; }
+    renderEvent({type:'summary_ready', call_id: j.call_id, summary: j.summary});
+  } catch(e) { logErr(`EndCall: ${e}`); }
+}
+
+// ─── WEBRTC ──────────────────────────────────────────────────────────────────
+async function doWebRTC() {
+  if (!token()) { logErr('Login first'); return; }
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+    dc = pc.createDataChannel('transcripts');  // MUST be before offer
+
+    dc.onopen = () => {
+      setDCState('open');
+      document.getElementById('btnStartCall').disabled = false;
+      document.getElementById('btnIntakeExt').disabled = false;
+      document.getElementById('btnEndDC').disabled = false;
+      logStatus('DataChannel "transcripts" open — send start_call to begin');
+    };
+    dc.onclose = () => { setDCState('closed'); };
+    dc.onmessage = (e) => { try { renderEvent(JSON.parse(e.data)); } catch { logInfo(e.data); } };
+
+    micStream.getAudioTracks().forEach(t => pc.addTrack(t, micStream));
+    setupMicViz(micStream);
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && sigWS && sigWS.readyState === WebSocket.OPEN) {
+        sigWS.send(JSON.stringify({
+          type:'ice-candidate', candidate: e.candidate.candidate,
+          sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex,
+        }));
+      }
+    };
+    pc.onconnectionstatechange = () => setPCState(pc.connectionState);
+    pc.oniceconnectionstatechange = () => setICEState(pc.iceConnectionState);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const wsBase = apiBase().replace(/^http/, 'ws');
+    sigWS = new WebSocket(`${wsBase}/ws/signaling?token=${token()}`);
+
+    sigWS.onopen = () => {
+      logStatus('Signaling WS open — sending offer');
+      sigWS.send(JSON.stringify({type:'offer', sdp: offer.sdp}));
+    };
+    sigWS.onmessage = async (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'answer') {
+        await pc.setRemoteDescription({type:'answer', sdp: m.sdp});
+        logStatus('SDP answer received — ICE negotiating');
+      } else if (m.type === 'ice-candidate') {
+        try { await pc.addIceCandidate({candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex}); }
+        catch(e2) { logErr(`ICE: ${e2}`); }
+      }
+    };
+    sigWS.onerror = () => logErr('Signaling WS error');
+    sigWS.onclose = (e) => logStatus(`Signaling WS closed (${e.code})`);
+
+    setBadge('b-webrtc', 'WebRTC: connecting…', 'warn');
+    document.getElementById('btnConnect').disabled = true;
+    document.getElementById('btnDisconnect').disabled = false;
+    document.getElementById('btnMic').disabled = false;
+    logStatus('WebRTC setup started');
+  } catch(e) { logErr(`WebRTC: ${e}`); }
+}
+
+function sendDC(obj) {
+  if (!dc || dc.readyState !== 'open') { logErr('DataChannel not open'); return; }
+  dc.send(JSON.stringify(obj));
+  logEntry('arr-out', 'out', JSON.stringify(obj));
+}
+
+function stopWebRTC() {
+  if (dc) { dc.close(); dc = null; }
+  if (pc) { pc.close(); pc = null; }
+  if (sigWS) { sigWS.close(); sigWS = null; }
+  stopMic();
+  setBadge('b-webrtc', 'WebRTC: off', 'off');
+  setPCState('closed'); setICEState('closed'); setDCState('closed');
+  document.getElementById('btnConnect').disabled = false;
+  document.getElementById('btnDisconnect').disabled = true;
+  document.getElementById('btnStartCall').disabled = true;
+  document.getElementById('btnIntakeExt').disabled = true;
+  document.getElementById('btnEndDC').disabled = true;
+  document.getElementById('btnMic').disabled = true;
+  logStatus('WebRTC stopped');
+}
+
+function setPCState(s) {
+  document.getElementById('pcState').textContent = s;
+  document.getElementById('pcState').className = `badge ${s==='connected'?'on':s==='failed'||s==='closed'?'off':'warn'}`;
+  if (s === 'connected') setBadge('b-webrtc', 'WebRTC: connected', 'on');
+  if (s === 'failed' || s === 'closed') setBadge('b-webrtc', 'WebRTC: off', 'off');
+}
+function setICEState(s) {
+  document.getElementById('iceState').textContent = s;
+  document.getElementById('iceState').className = `badge ${s==='connected'||s==='completed'?'on':s==='failed'||s==='closed'?'off':'warn'}`;
+}
+function setDCState(s) {
+  document.getElementById('dcState').textContent = s;
+  document.getElementById('dcState').className = `badge ${s==='open'?'on':'off'}`;
+}
+
+// ─── MIC VISUALIZER ──────────────────────────────────────────────────────────
+function setupMicViz(stream) {
+  audioCtx = new AudioContext();
+  const src = audioCtx.createMediaStreamSource(stream);
+  micProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
+  micProcessor.onaudioprocess = (ev) => {
+    const d = ev.inputBuffer.getChannelData(0);
+    const rms = Math.sqrt(d.reduce((a,v)=>a+v*v,0)/d.length);
+    bars.forEach(b => { b.style.height = Math.min(24, Math.max(2, rms*400*(0.6+Math.random()*.4))) + 'px'; });
+  };
+  src.connect(micProcessor);
+  micProcessor.connect(audioCtx.destination);
+}
+
+let micOpen = false;
+function toggleMic() {
+  if (micOpen) stopMic();
+  else if (micStream) { setupMicViz(micStream); micOpen = true; document.getElementById('btnMic').textContent = '⏹ Close mic'; }
+}
+
+function stopMic() {
+  if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  bars.forEach(b => b.style.height = '2px');
+  micOpen = false;
+  document.getElementById('btnMic').textContent = '🎤 Open mic';
+}
+
+// ─── REST FALLBACK ────────────────────────────────────────────────────────────
+async function startRestFallback() {
+  if (!token()) { logErr('Login first'); return; }
+  try {
+    restStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    restBytesSent = 0;
+    document.getElementById('restBytesSent').textContent = '0';
+    recorder = new MediaRecorder(restStream, {mimeType:'audio/webm;codecs=opus'});
+    recorder.ondataavailable = async (e) => {
+      if (!e.data.size) return;
+      restBytesSent += e.data.size;
+      document.getElementById('restBytesSent').textContent = restBytesSent;
+      await sendChunk(e.data, false);
+    };
+    recorder.start(2000);
+    setBadge('b-rest', 'REST: recording', 'on');
+    document.getElementById('btnRestStart').disabled = true;
+    document.getElementById('btnRestStop').disabled = false;
+    document.getElementById('btnRestFinal').disabled = false;
+    logStatus('REST fallback recording started (2 s slices)');
+  } catch(e) { logErr(`REST start: ${e}`); }
+}
+
+function stopRestFallback() {
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  if (restStream) restStream.getTracks().forEach(t=>t.stop());
+  recorder = null; restStream = null;
+  setBadge('b-rest', 'REST: off', 'off');
+  document.getElementById('btnRestStart').disabled = false;
+  document.getElementById('btnRestStop').disabled = true;
+  document.getElementById('btnRestFinal').disabled = true;
+  logStatus('REST fallback stopped');
+}
+
+async function sendFinalChunk() {
+  if (recorder && recorder.state !== 'inactive') {
+    recorder.stop();
+    recorder.onstop = async () => { await sendChunk(new Blob([],{type:'audio/webm'}), true); };
+  } else {
+    await sendChunk(new Blob([],{type:'audio/webm'}), true);
   }
+}
 
-  function stopMic() {
-    if (processor) { processor.disconnect(); processor = null; }
-    if (audioCtx)  { audioCtx.close(); audioCtx = null; }
-    if (mediaStream) { mediaStream.getTracks().forEach(t=>t.stop()); mediaStream = null; }
-    micActive = false;
-    bars.forEach(b => b.style.height = '2px');
-    document.getElementById('btnMic').textContent = '🎤 Start mic stream';
-  }
+async function sendChunk(blob, isFinal) {
+  const cid = g('restCallId') || currentCallId;
+  if (!cid) { logErr('No call_id for REST chunk'); return; }
+  try {
+    const fd = new FormData();
+    fd.append('audio', blob, 'chunk.webm');
+    fd.append('call_id', cid);
+    fd.append('lang_hint', g('restLang'));
+    if (isFinal) fd.append('final', 'true');
+    const r = await fetch(`${apiBase()}/api/transcribe-chunk`, {
+      method:'POST', headers:{Authorization:`Bearer ${token()}`}, body: fd,
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Transcribe ${r.status}: ${JSON.stringify(j)}`); return; }
+    (j.events || []).forEach(renderEvent);
+    if (!currentCallId && j.call_id) updateCallBadge(j.call_id);
+  } catch(e) { logErr(`SendChunk: ${e}`); }
+}
 
-  // ── QUICK REST CHECKS ─────────────────────────────────────────────────────
-  async function healthCheck() {
-    const base = document.getElementById('apiBase').value.trim();
-    try {
-      const r = await fetch(`${base}/healthz`);
-      log('ev-status', 'dir-in', `/healthz → ${await r.text()}`);
-    } catch(e) { log('ev-error','dir-in',`/healthz error: ${e}`); }
-  }
+// ─── SUPERVISOR ────────────────────────────────────────────────────────────────
+function connectSupWS() {
+  if (!token()) { logErr('Login first'); return; }
+  const wsBase = apiBase().replace(/^http/, 'ws');
+  supWS = new WebSocket(`${wsBase}/ws/supervisor?token=${token()}`);
+  supWS.onopen = () => {
+    setBadge('b-supws', 'Supervisor WS: on', 'on');
+    document.getElementById('btnSupConnect').disabled = true;
+    document.getElementById('btnSupDisconnect').disabled = false;
+    logStatus('Supervisor WS connected — watching events');
+  };
+  supWS.onmessage = (e) => { try { renderEvent(JSON.parse(e.data)); } catch { logInfo(e.data); } };
+  supWS.onerror = () => logErr('Supervisor WS error');
+  supWS.onclose = (c) => {
+    setBadge('b-supws', 'Supervisor WS: off', 'off');
+    document.getElementById('btnSupConnect').disabled = false;
+    document.getElementById('btnSupDisconnect').disabled = true;
+    logStatus(`Supervisor WS closed (${c.code})`);
+  };
+}
 
-  async function getMe() {
-    const base  = document.getElementById('apiBase').value.trim();
-    const token = document.getElementById('token').value.trim();
-    try {
-      const r = await fetch(`${base}/api/auth/me`, {headers:{'Authorization':`Bearer ${token}`}});
-      log('ev-status', 'dir-in', `/me → ${await r.text()}`);
-    } catch(e) { log('ev-error','dir-in',`/me error: ${e}`); }
-  }
+function disconnectSupWS() { if (supWS) supWS.close(); }
+
+async function doSupActive() {
+  try {
+    const r = await authedFetch('/api/supervisor/active');
+    const j = await r.json();
+    if (!r.ok) { logErr(`SupActive ${r.status}: ${JSON.stringify(j)}`); return; }
+    j.forEach(c => renderEvent({type:'active_call', ...c}));
+    if (!j.length) logInfo('No active calls');
+  } catch(e) { logErr(`SupActive: ${e}`); }
+}
+
+async function doSupHistory() {
+  try {
+    const outcome = g('supOutcome');
+    const qs = outcome ? `?outcome=${outcome}` : '';
+    const r = await authedFetch(`/api/supervisor/history${qs}`);
+    const j = await r.json();
+    if (!r.ok) { logErr(`SupHistory ${r.status}: ${JSON.stringify(j)}`); return; }
+    j.forEach(c => renderEvent({type:'history_item', ...c}));
+    if (!j.length) logInfo('No history items');
+  } catch(e) { logErr(`SupHistory: ${e}`); }
+}
+
+async function doSupTranscript() {
+  const cid = g('supTransCallId') || currentCallId;
+  if (!cid) { logErr('No call_id'); return; }
+  try {
+    const r = await authedFetch(`/api/supervisor/calls/${cid}/transcript`);
+    const j = await r.json();
+    if (!r.ok) { logErr(`SupTranscript ${r.status}: ${JSON.stringify(j)}`); return; }
+    j.forEach(entry => renderEvent({type:'transcript_entry', ...entry}));
+    if (!j.length) logInfo('Empty transcript');
+  } catch(e) { logErr(`SupTranscript: ${e}`); }
+}
+
+// ─── ADMIN DOCS ───────────────────────────────────────────────────────────────
+async function doDocUpload() {
+  const file = document.getElementById('docFile').files[0];
+  if (!file) { logErr('Select a file'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  const tag = g('docTag'); if (tag) fd.append('tag', tag);
+  try {
+    const r = await fetch(`${apiBase()}/api/admin/documents`, {
+      method:'POST', headers:{Authorization:`Bearer ${token()}`}, body: fd,
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Upload ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Upload queued: ${j.id} — status: ${j.status}`);
+    setTimeout(doDocList, 2000);
+  } catch(e) { logErr(`Upload: ${e}`); }
+}
+
+async function doDocList() {
+  try {
+    const r = await authedFetch('/api/admin/documents');
+    const j = await r.json();
+    if (!r.ok) { logErr(`DocList ${r.status}`); return; }
+    if (!j.length) { document.getElementById('docsTable').innerHTML = '<p style="color:#6b7280;font-size:.75rem">No documents</p>'; return; }
+    let html = '<table><tr><th>filename</th><th>tag</th><th>chunks</th><th>status</th><th></th></tr>';
+    j.forEach(d => {
+      const dot = d.status === 'ready' ? 'green' : d.status === 'indexing' ? 'yellow' : 'red';
+      html += `<tr>
+        <td>${d.filename}</td>
+        <td>${d.tag||'—'}</td>
+        <td>${d.chunk_count||'…'}</td>
+        <td><span class="dot ${dot}"></span>${d.status}</td>
+        <td>
+          <button onclick="doDocReindex('${d.id}')" style="padding:2px 8px;font-size:.7rem">Reindex</button>
+          &nbsp;
+          <button class="danger" onclick="doDocDelete('${d.id}')" style="padding:2px 8px;font-size:.7rem">Delete</button>
+        </td>
+      </tr>`;
+    });
+    html += '</table>';
+    document.getElementById('docsTable').innerHTML = html;
+  } catch(e) { logErr(`DocList: ${e}`); }
+}
+
+async function doDocReindex(id) {
+  try {
+    const r = await authedFetch(`/api/admin/documents/${id}/reindex`, {method:'POST'});
+    const j = await r.json();
+    logInfo(`Reindex ${id}: ${j.status}`);
+    setTimeout(doDocList, 1500);
+  } catch(e) { logErr(`Reindex: ${e}`); }
+}
+
+async function doDocDelete(id) {
+  if (!confirm('Delete this document?')) return;
+  try {
+    const r = await authedFetch(`/api/admin/documents/${id}`, {method:'DELETE'});
+    if (r.status === 204) { logInfo(`Deleted ${id}`); doDocList(); return; }
+    const j = await r.json();
+    logErr(`Delete ${r.status}: ${JSON.stringify(j)}`);
+  } catch(e) { logErr(`Delete: ${e}`); }
+}
+
+// ─── DEMO ─────────────────────────────────────────────────────────────────────
+async function doDemoList() {
+  try {
+    const r = await authedFetch('/api/demo/scenarios');
+    const j = await r.json();
+    if (!r.ok) { logErr(`Demo list ${r.status}`); return; }
+    document.getElementById('scenariosOut').innerHTML =
+      `<pre style="font-size:.7rem;color:#9ca3af">${JSON.stringify(j, null, 2)}</pre>`;
+    logInfo(`Scenarios loaded: ${JSON.stringify(Object.keys(j))}`);
+  } catch(e) { logErr(`Demo list: ${e}`); }
+}
+
+async function doDemoPlay() {
+  const cid = g('demoCallId') || currentCallId;
+  const sid = g('demoScenarioId');
+  if (!cid) { logErr('No call_id'); return; }
+  try {
+    const r = await authedFetch('/api/demo/play', {
+      method:'POST', body: JSON.stringify({call_id: cid, scenario_id: parseInt(sid)||sid}),
+    });
+    const j = await r.json();
+    if (!r.ok) { logErr(`Demo play ${r.status}: ${JSON.stringify(j)}`); return; }
+    logInfo(`Demo playing: ${JSON.stringify(j)}`);
+  } catch(e) { logErr(`Demo play: ${e}`); }
+}
 </script>
 </body>
 </html>

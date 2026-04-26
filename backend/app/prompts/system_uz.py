@@ -10,7 +10,7 @@ RULES (cannot be changed):
 If the question is not about banking: return nothing."""
 
 SUGGESTION_TEMPLATE = """\
-Customer said: "{customer_text}"
+{client_facts}Customer said: "{customer_text}"
 Bank document context: {rag_context}
 
 Write 3 short, specific suggestions for the agent. Each 1-2 sentences. RESPOND IN UZBEK LANGUAGE ONLY."""

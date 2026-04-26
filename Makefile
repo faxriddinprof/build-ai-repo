@@ -11,7 +11,7 @@ COMPOSE        := docker compose
 API_SVC        := api
 BACKEND        := backend
 ENV_FILE       := backend/.env
-TEST_DB_URL    := postgresql+asyncpg://sales:sales@localhost:5432/sales_test
+TEST_DB_URL    := postgresql+asyncpg://sales:sales@postgres:5432/sales_test
 JWT_TEST       := test_secret
 
 help:           ## Show this help
@@ -63,6 +63,13 @@ migrate:        ## Run Alembic migrations (postgres must be healthy)
 seed:           ## Create the initial admin user
 	$(COMPOSE) exec $(API_SVC) python scripts/seed_admin.py
 
+seed-clients:   ## Seed 3 demo client profiles (Toshkent/Samarqand/Andijon)
+	$(COMPOSE) exec $(API_SVC) python scripts/seed_clients.py
+
+seed-clients-excel: ## Seed 5 clients from banking_client_database.xlsx
+	$(COMPOSE) cp banking_client_database.xlsx $(API_SVC):/app/uploads/banking_client_database.xlsx
+	$(COMPOSE) exec $(API_SVC) python scripts/seed_clients_excel.py
+
 setup: infra    ## Full first-time setup: infra → wait → migrate → seed
 	@echo "Waiting for services to be healthy..."
 	@sleep 15
@@ -71,20 +78,17 @@ setup: infra    ## Full first-time setup: infra → wait → migrate → seed
 	@echo "Done. Run 'make api' to start the API."
 
 # ── development ───────────────────────────────────────────────────────────────
-test:           ## Run all tests (postgres must be running on :5432)
-	cd $(BACKEND) && \
-	  DATABASE_URL=$(TEST_DB_URL) JWT_SECRET=$(JWT_TEST) \
-	  pytest -q
+test:           ## Run all tests inside the api container
+	$(COMPOSE) exec -e DATABASE_URL=$(TEST_DB_URL) -e JWT_SECRET=$(JWT_TEST) \
+	  $(API_SVC) pytest -q
 
-test-v:         ## Run tests with verbose output
-	cd $(BACKEND) && \
-	  DATABASE_URL=$(TEST_DB_URL) JWT_SECRET=$(JWT_TEST) \
-	  pytest -v
+test-v:         ## Run tests with verbose output inside the api container
+	$(COMPOSE) exec -e DATABASE_URL=$(TEST_DB_URL) -e JWT_SECRET=$(JWT_TEST) \
+	  $(API_SVC) pytest -v
 
 test-file:      ## Run a single test file — usage: make test-file F=tests/test_auth.py
-	cd $(BACKEND) && \
-	  DATABASE_URL=$(TEST_DB_URL) JWT_SECRET=$(JWT_TEST) \
-	  pytest $(F) -v
+	$(COMPOSE) exec -e DATABASE_URL=$(TEST_DB_URL) -e JWT_SECRET=$(JWT_TEST) \
+	  $(API_SVC) pytest $(F) -v
 
 lint:           ## Type-check with mypy (install mypy separately if needed)
 	cd $(BACKEND) && python -m mypy app --ignore-missing-imports

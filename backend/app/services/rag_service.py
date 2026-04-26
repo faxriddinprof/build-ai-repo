@@ -2,11 +2,10 @@ import asyncio
 from typing import Optional
 
 import structlog
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
 from app.database import AsyncSessionLocal
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
 
@@ -16,11 +15,11 @@ _APPROX_CHARS_PER_TOKEN = 4
 
 async def embed(text_input: str) -> list[float]:
     from litellm import aembedding
+
     resp = await aembedding(
         model=settings.EMBEDDING_MODEL,
         input=[text_input],
-        api_base=settings.LITELLM_BASE_URL,
-        api_key=settings.LITELLM_API_KEY,
+        api_base=settings.OLLAMA_BASE_URL,
         timeout=float(settings.LLM_TIMEOUT_SECONDS),
     )
     return resp.data[0]["embedding"]
@@ -36,7 +35,8 @@ async def _dense_search(
     vector = await embed(query)
     vec_str = "[" + ",".join(str(v) for v in vector) + "]"
 
-    sql = text("""
+    sql = text(
+        """
         SELECT dc.id AS chunk_id, dc.content, dc.page_number, dc.document_id, d.filename,
                1 - (dc.embedding <=> CAST(:vec AS vector)) AS similarity
           FROM document_chunks dc
@@ -44,14 +44,17 @@ async def _dense_search(
          WHERE (:tag IS NULL OR d.tag = :tag)
          ORDER BY dc.embedding <=> CAST(:vec AS vector)
          LIMIT :top_k
-    """)
+    """
+    )
 
     own_session = db is None
     if own_session:
         db = AsyncSessionLocal()
 
     try:
-        result = await db.execute(sql, {"vec": vec_str, "tag": tag_filter, "top_k": top_k})
+        result = await db.execute(
+            sql, {"vec": vec_str, "tag": tag_filter, "top_k": top_k}
+        )
         rows = result.mappings().all()
         return [dict(r) for r in rows]
     finally:
@@ -99,25 +102,36 @@ async def search(
     """Hybrid retrieval: dense (BGE-M3 + pgvector) + sparse (BM25s) → RRF → top_k."""
     from app.services import bm25_service
 
-    dense_coro = _dense_search(query, top_k=settings.RAG_DENSE_TOP_K, tag_filter=tag_filter, db=db)
-    sparse_coro = bm25_service.search(query, top_k=settings.RAG_SPARSE_TOP_K, tag_filter=tag_filter)
+    dense_coro = _dense_search(
+        query, top_k=settings.RAG_DENSE_TOP_K, tag_filter=tag_filter, db=db
+    )
+    sparse_coro = bm25_service.search(
+        query, top_k=settings.RAG_SPARSE_TOP_K, tag_filter=tag_filter
+    )
 
     results = await asyncio.gather(dense_coro, sparse_coro, return_exceptions=True)
 
     dense_hits: list[dict] = results[0] if not isinstance(results[0], Exception) else []
-    sparse_hits: list[dict] = results[1] if not isinstance(results[1], Exception) else []
+    sparse_hits: list[dict] = (
+        results[1] if not isinstance(results[1], Exception) else []
+    )
 
     if isinstance(results[0], Exception):
         log.warning("rag.dense_search_failed", error=str(results[0]))
     if isinstance(results[1], Exception):
         log.warning("rag.sparse_search_failed", error=str(results[1]))
 
-    return _rrf(dense_hits, sparse_hits, k=settings.RRF_K)[:settings.RAG_FINAL_TOP_K]
+    return _rrf(dense_hits, sparse_hits, k=settings.RRF_K)[: settings.RAG_FINAL_TOP_K]
 
 
-async def build_context(transcript_tail: str, top_k: int = 5) -> str:
+async def build_context(
+    transcript_tail: str,
+    top_k: int = 5,
+    client_profile=None,
+    db: Optional[AsyncSession] = None,
+) -> str:
     try:
-        chunks = await search(transcript_tail, top_k=top_k)
+        chunks = await search(transcript_tail, top_k=top_k, db=db)
     except Exception as e:
         log.warning("rag.search_failed", error=str(e))
         return "Mavjud emas."
@@ -128,6 +142,18 @@ async def build_context(transcript_tail: str, top_k: int = 5) -> str:
     parts: list[str] = []
     total_chars = 0
     char_budget = _MAX_CONTEXT_TOKENS * _APPROX_CHARS_PER_TOKEN
+
+    # Prepend client facts when profile is provided
+    if client_profile is not None:
+        try:
+            from app.services.client_profile_service import format_for_llm
+
+            client_facts = format_for_llm(client_profile)
+            header = f"[mijoz ma'lumotlari]\n{client_facts}"
+            parts.append(header)
+            total_chars += len(header)
+        except Exception as e:
+            log.warning("rag.client_facts_failed", error=str(e))
 
     for i, chunk in enumerate(chunks, 1):
         line = f"[chunk {i} — sahifa {chunk['page_number']}, {chunk['filename']}] {chunk['content']}"

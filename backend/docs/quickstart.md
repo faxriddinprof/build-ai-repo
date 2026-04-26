@@ -51,7 +51,21 @@ Wait until all three services are healthy:
 make ps   # all should show "healthy"
 ```
 
-## 3. Run migrations + seed admin
+## 3. Start the API
+
+```bash
+docker compose up api
+```
+
+Startup takes ~30 s while faster-whisper and Qwen3 warm up. BM25 index loads from disk (or rebuilds from DB if missing). Watch for:
+
+```
+startup.done
+```
+
+## 4. Run migrations + seed admin
+
+The `api` container must be running (step 3) since migrations execute inside it:
 
 ```bash
 make migrate
@@ -65,22 +79,10 @@ ADMIN_EMAIL=admin@bank.uz
 ADMIN_PASSWORD=changeme
 ```
 
-Or run everything at once:
+Or run everything at once (handles the correct order automatically):
 
 ```bash
-make setup   # infra → wait 15 s → migrate → seed
-```
-
-## 4. Start the API
-
-```bash
-docker compose up api
-```
-
-Startup takes ~30 s while faster-whisper and Qwen3 warm up. BM25 index loads from disk (or rebuilds from DB if missing). Watch for:
-
-```
-startup.done
+make setup   # infra → wait 15 s → api → migrate → seed
 ```
 
 ## 5. Verify

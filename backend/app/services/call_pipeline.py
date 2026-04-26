@@ -8,22 +8,26 @@ caller's responsibility.
 Per-call in-memory state lives in _call_state. Keys are call_id strings.
 Single-process only (uvicorn --workers 1 required).
 """
+
 import asyncio
 import time
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
 
 import structlog
-from sqlalchemy import select
-
+from app.data.objections import match_objection
 from app.database import AsyncSessionLocal
 from app.models.call import Call
 from app.models.suggestion import SuggestionLog
-from app.services import guardrail_service, llm_service, stt_service, event_bus
-from app.services import compliance_service, sentiment_service
+from app.services import (
+    compliance_service,
+    event_bus,
+    llm_service,
+    sentiment_service,
+    stt_service,
+)
 from app.utils.audio import SpeakerTracker, pcm_to_float32
-from app.data.objections import match_objection
+from sqlalchemy import select
 
 log = structlog.get_logger()
 
@@ -34,7 +38,25 @@ def _make_event(type_: str, **kwargs) -> dict:
     return {"type": type_, **kwargs}
 
 
-async def start_call(call_id: str, agent_id: str, lang_hint: Optional[str] = None) -> None:
+async def start_call(
+    call_id: str,
+    agent_id: str,
+    lang_hint: Optional[str] = None,
+    client_id: Optional[str] = None,
+) -> None:
+    # Load client profile once at call start
+    client_profile = None
+    if client_id:
+        try:
+            from app.services.client_profile_service import get_profile
+
+            async with AsyncSessionLocal() as _db:
+                client_profile = await get_profile(_db, client_id)
+        except Exception as _e:
+            log.warning(
+                "client_profile.load_failed", client_id=client_id, error=str(_e)
+            )
+
     _call_state[call_id] = {
         "transcripts": [],
         "start_time": time.monotonic(),
@@ -44,6 +66,11 @@ async def start_call(call_id: str, agent_id: str, lang_hint: Optional[str] = Non
         "sentiment_journey": [],
         "last_sentiment": None,
         "objection_hits": [],
+        "client_id": client_id,
+        "client_profile": client_profile,
+        # Dual-LLM throttle state
+        "last_recommendation_ts": 0.0,
+        "turns_since_live_script": 0,
     }
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(Call).where(Call.id == call_id))
@@ -51,14 +78,20 @@ async def start_call(call_id: str, agent_id: str, lang_hint: Optional[str] = Non
             call = Call(
                 id=call_id,
                 agent_id=agent_id,
+                client_id=client_id,
                 started_at=datetime.utcnow(),
                 transcript=[],
             )
             db.add(call)
             await db.commit()
-    await event_bus.publish("supervisor", {
-        "type": "call_started", "call_id": call_id, "agent_id": agent_id,
-    })
+    await event_bus.publish(
+        "supervisor",
+        {
+            "type": "call_started",
+            "call_id": call_id,
+            "agent_id": agent_id,
+        },
+    )
     log.info("call.started", call_id=call_id, agent_id=agent_id)
 
 
@@ -73,12 +106,18 @@ async def run_intake_extraction(call_id: str) -> Optional[dict]:
         f"[{e.get('speaker')}]: {e.get('text')}" for e in entries
     )
     from app.services.extraction_service import extract
+
     try:
         data = await extract(call_id, transcript_text)
         event = _make_event("intake_proposal", call_id=call_id, data=data)
-        await event_bus.publish("supervisor", {
-            "type": "intake_proposal", "call_id": call_id, "data": data,
-        })
+        await event_bus.publish(
+            "supervisor",
+            {
+                "type": "intake_proposal",
+                "call_id": call_id,
+                "data": data,
+            },
+        )
         return event
     except Exception as e:
         log.error("extraction.error", call_id=call_id, error=str(e))
@@ -90,6 +129,7 @@ async def _bg_extraction(call_id: str) -> None:
     if event:
         try:
             from app.services import webrtc_service
+
             await webrtc_service.send_to_call(call_id, event)
         except Exception:
             pass
@@ -130,7 +170,9 @@ async def process_audio_chunk(
     if state:
         state["transcripts"].append(entry)
 
-    events.append(_make_event("transcript", call_id=call_id, speaker=speaker, text=text, ts=ts))
+    events.append(
+        _make_event("transcript", call_id=call_id, speaker=speaker, text=text, ts=ts)
+    )
 
     # Persist transcript line to DB incrementally
     try:
@@ -145,16 +187,24 @@ async def process_audio_chunk(
     except Exception as e:
         log.warning("transcript.persist_error", error=str(e))
 
-    await event_bus.publish("supervisor", {
-        "type": "transcript_chunk", "call_id": call_id,
-        "speaker": speaker, "text": text, "ts": ts,
-    })
+    await event_bus.publish(
+        "supervisor",
+        {
+            "type": "transcript_chunk",
+            "call_id": call_id,
+            "speaker": speaker,
+            "text": text,
+            "ts": ts,
+        },
+    )
 
     # Compliance
     try:
         ticked = await compliance_service.check_chunk(call_id, text)
         for phrase_id in ticked:
-            events.append(_make_event("compliance_tick", call_id=call_id, phrase_id=phrase_id))
+            events.append(
+                _make_event("compliance_tick", call_id=call_id, phrase_id=phrase_id)
+            )
             async with AsyncSessionLocal() as db:
                 res = await db.execute(select(Call).where(Call.id == call_id))
                 call_obj = res.scalar_one_or_none()
@@ -182,37 +232,85 @@ async def process_audio_chunk(
     # Auto extraction at INTAKE_AUTO_TRIGGER_AT_SECONDS
     if state and not state["extraction_done"]:
         from app.config import settings as _s
+
         elapsed = time.monotonic() - state["start_time"]
         if elapsed >= _s.INTAKE_AUTO_TRIGGER_AT_SECONDS:
             asyncio.create_task(_bg_extraction(call_id))
 
-    # Guardrail
-    if not guardrail_service.is_bank_related(text):
-        log.debug("guardrail.drop", call_id=call_id, text=text[:40])
-        return events
-
-    # RAG context
-    rag_context = ""
-    try:
-        from app.services.rag_service import build_context
-        rag_context = await build_context(text)
-    except Exception as e:
-        log.warning("rag.error", error=str(e))
-
-    # Match objection keyword for real trigger label
+    # Match objection keyword for real trigger label (before RAG, no guardrail)
     objection_match = match_objection(text)
     trigger_label = objection_match[1] if objection_match else text[:60]
     if state and objection_match:
         state["objection_hits"].append(objection_match[1])
 
-    # LLM suggestion
+    if state:
+        state["turns_since_live_script"] = state.get("turns_since_live_script", 0) + 1
+
+    # Build dual-RAG context (client profile + KB chunks)
+    client_profile = state.get("client_profile") if state else None
+    sales_ctx: dict = {"client_facts": "", "doc_context": "Mavjud emas.", "pitches": []}
+    try:
+        from app.services.sales_rag_service import build_context as _sales_build_context
+
+        sales_ctx = await _sales_build_context(
+            query=text,
+            client_profile=client_profile,
+        )
+    except Exception as e:
+        log.warning("sales_rag.error", error=str(e))
+
+    client_facts = sales_ctx["client_facts"]
+    rag_context = sales_ctx["doc_context"]
+
+    # ── LLM #1: Sales recommendation (debounced 30 s) ───────────────────────
+    _RECOMMENDATION_DEBOUNCE_S = 30.0
+    if state and client_profile is not None:
+        now = time.monotonic()
+        last_rec_ts = state.get("last_recommendation_ts", 0.0)
+        if now - last_rec_ts >= _RECOMMENDATION_DEBOUNCE_S:
+            state["last_recommendation_ts"] = now
+            asyncio.create_task(
+                _bg_recommendation(
+                    call_id, client_facts, sales_ctx["pitches"], rag_context, text
+                )
+            )
+
+    # ── LLM #2: Live script (per objection OR per 3 turns) ───────────────────
+    _LIVE_SCRIPT_TURNS_INTERVAL = 3
+    should_emit_live_script = objection_match is not None or (
+        state and state.get("turns_since_live_script", 0) >= _LIVE_SCRIPT_TURNS_INTERVAL
+    )
+    if should_emit_live_script:
+        if state:
+            state["turns_since_live_script"] = 0
+        last_3 = state["transcripts"][-3:] if state else []
+        asyncio.create_task(
+            _bg_live_script(
+                call_id,
+                client_facts,
+                rag_context,
+                last_3,
+                trigger_label if objection_match else "",
+            )
+        )
+
+    # ── Standard LLM suggestion (existing suggestion card) ──────────────────
+    client_facts_header = (
+        f"Mijoz ma'lumotlari:\n{client_facts}\n\n" if client_facts else ""
+    )
     suggestion_tokens: list[str] = []
     try:
-        async for token in llm_service.get_suggestion(customer_text=text, rag_context=rag_context):
+        async for token in llm_service.get_suggestion(
+            customer_text=text,
+            rag_context=rag_context,
+            client_facts=client_facts_header,
+        ):
             suggestion_tokens.append(token)
     except Exception as e:
         log.error("llm.error", error=str(e), call_id=call_id)
-        events.append(_make_event("error", call_id=call_id, code="LLM_TIMEOUT", message=str(e)))
+        events.append(
+            _make_event("error", call_id=call_id, code="LLM_TIMEOUT", message=str(e))
+        )
         return events
 
     if suggestion_tokens:
@@ -240,6 +338,115 @@ async def process_audio_chunk(
     return events
 
 
+async def _bg_recommendation(
+    call_id: str,
+    client_facts: str,
+    pitches: list[dict],
+    doc_context: str,
+    recent_transcript: str,
+) -> None:
+    """Background task: run SALES_RECOMMENDATION_PROMPT and emit recommendation event."""
+    import json
+
+    from app.prompts.sales_uz import SALES_RECOMMENDATION_PROMPT
+
+    pitches_text = (
+        "\n".join(f"- {p['product']}: {p['rationale_uz']}" for p in pitches)
+        if pitches
+        else "Mavjud emas."
+    )
+
+    prompt = SALES_RECOMMENDATION_PROMPT.format(
+        client_facts=client_facts or "Mavjud emas.",
+        pitches=pitches_text,
+        doc_context=doc_context,
+        recent_transcript=recent_transcript,
+    )
+    try:
+        raw = await llm_service.chat(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=256,
+            temperature=0.2,
+        )
+        raw = raw.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+        event = _make_event(
+            "recommendation",
+            call_id=call_id,
+            product=data.get("product", ""),
+            rationale_uz=data.get("rationale_uz", ""),
+            confidence=float(data.get("confidence", 0.5)),
+        )
+        await event_bus.publish("supervisor", {**event})
+        try:
+            from app.services import webrtc_service
+
+            await webrtc_service.send_to_call(call_id, event)
+        except Exception:
+            pass
+    except Exception as e:
+        log.warning("recommendation.error", call_id=call_id, error=str(e))
+
+
+async def _bg_live_script(
+    call_id: str,
+    client_facts: str,
+    doc_context: str,
+    last_3_turns: list[dict],
+    objection_label: str,
+) -> None:
+    """Background task: run LIVE_SCRIPT_PROMPT and emit live_script event."""
+    import json
+
+    from app.prompts.sales_uz import LIVE_SCRIPT_PROMPT
+
+    turns_text = (
+        "\n".join(f"[{e.get('speaker')}]: {e.get('text')}" for e in last_3_turns)
+        if last_3_turns
+        else "Mavjud emas."
+    )
+
+    prompt = LIVE_SCRIPT_PROMPT.format(
+        client_facts=client_facts or "Mavjud emas.",
+        doc_context=doc_context,
+        last_3_turns=turns_text,
+        objection_label=objection_label or "yo'q",
+    )
+    try:
+        raw = await llm_service.chat(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=128,
+            temperature=0.3,
+        )
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+        next_sentence = data.get("next_sentence_uz", "").strip()
+        event = _make_event(
+            "live_script",
+            call_id=call_id,
+            next_sentence_uz=next_sentence,
+            trigger=objection_label or None,
+        )
+        await event_bus.publish("supervisor", {**event})
+        try:
+            from app.services import webrtc_service
+
+            await webrtc_service.send_to_call(call_id, event)
+        except Exception:
+            pass
+    except Exception as e:
+        log.warning("live_script.error", call_id=call_id, error=str(e))
+
+
 async def finalize_call(call_id: str) -> dict:
     """
     Generate summary, persist final Call state, clear per-call memory.
@@ -255,14 +462,18 @@ async def finalize_call(call_id: str) -> dict:
     top_objection: Optional[str] = None
     if objection_hits:
         from collections import Counter
+
         counts = Counter(objection_hits)
         top_objection = counts.most_common(1)[0][0]
 
     summary = {}
     try:
         from app.services.summary_service import summarize
+
         summary = await summarize(
-            call_id, transcripts, compliance_status,
+            call_id,
+            transcripts,
+            compliance_status,
             sentiment_journey=sentiment_journey,
             top_objection=top_objection,
         )

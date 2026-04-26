@@ -1,17 +1,16 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from jose import JWTError
-from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
 from app.deps import get_db
 from app.models.call_queue import CallQueueEntry
 from app.models.user import User
 from app.services import queue_service
 from app.services.auth_service import create_customer_token, decode_token
+from fastapi import APIRouter, Depends, HTTPException
+from jose import JWTError
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api/customer")
 
@@ -21,6 +20,7 @@ class InitiateRequest(BaseModel):
     region: Optional[str] = None
     topic: Optional[str] = None
     priority: str = "normal"
+    client_id: Optional[str] = None
 
 
 @router.post("/call/initiate")
@@ -33,6 +33,7 @@ async def initiate_call(body: InitiateRequest, db: AsyncSession = Depends(get_db
         topic=body.topic,
         priority=body.priority,
         customer_token_jti=jti,
+        client_id=body.client_id,
     )
     # Issue final token with real queue_id
     token, jti = create_customer_token(entry.id)
@@ -40,14 +41,18 @@ async def initiate_call(body: InitiateRequest, db: AsyncSession = Depends(get_db
     await db.commit()
 
     from app.services import event_bus
-    await event_bus.publish("supervisor", {
-        "type": "queue_added",
-        "queue_id": entry.id,
-        "masked_phone": body.masked_phone,
-        "region": body.region,
-        "topic": body.topic,
-        "priority": body.priority,
-    })
+
+    await event_bus.publish(
+        "supervisor",
+        {
+            "type": "queue_added",
+            "queue_id": entry.id,
+            "masked_phone": body.masked_phone,
+            "region": body.region,
+            "topic": body.topic,
+            "priority": body.priority,
+        },
+    )
 
     return {
         "queue_id": entry.id,

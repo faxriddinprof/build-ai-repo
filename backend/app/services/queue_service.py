@@ -1,12 +1,10 @@
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
 
 import structlog
+from app.models.call_queue import CallQueueEntry, SkipLog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.call_queue import CallQueueEntry, SkipLog
 
 log = structlog.get_logger()
 
@@ -20,6 +18,7 @@ async def enqueue(
     topic: Optional[str] = None,
     priority: str = "normal",
     customer_token_jti: Optional[str] = None,
+    client_id: Optional[str] = None,
 ) -> CallQueueEntry:
     entry = CallQueueEntry(
         masked_phone=masked_phone,
@@ -27,16 +26,24 @@ async def enqueue(
         topic=topic,
         priority=priority,
         customer_token_jti=customer_token_jti,
+        client_id=client_id,
         status="pending",
     )
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
-    log.info("queue.enqueued", queue_id=entry.id, masked_phone=masked_phone, priority=priority)
+    log.info(
+        "queue.enqueued",
+        queue_id=entry.id,
+        masked_phone=masked_phone,
+        priority=priority,
+    )
     return entry
 
 
-async def accept(db: AsyncSession, queue_id: str, agent_id: str) -> Optional[CallQueueEntry]:
+async def accept(
+    db: AsyncSession, queue_id: str, agent_id: str
+) -> Optional[CallQueueEntry]:
     res = await db.execute(select(CallQueueEntry).where(CallQueueEntry.id == queue_id))
     entry = res.scalar_one_or_none()
     if entry is None or entry.status != "pending":

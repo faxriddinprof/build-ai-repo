@@ -236,7 +236,7 @@ curl -s http://localhost:8000/api/admin/documents/$DOC_ID \
 
 ```bash
 make test
-# expect: 68+ passed, 0 failed
+# expect: 83 passed, 0 failed
 ```
 
 Run a single file:

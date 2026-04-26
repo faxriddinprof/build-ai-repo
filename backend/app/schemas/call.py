@@ -1,11 +1,13 @@
 from datetime import datetime
 from typing import Optional
+
 from pydantic import BaseModel
 
 
 class CallCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    client_id: Optional[str] = None
 
 
 class CallResponse(BaseModel):

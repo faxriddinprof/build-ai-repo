@@ -1,4 +1,5 @@
 from typing import Optional
+
 from pydantic_settings import BaseSettings
 
 
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
 
     LITELLM_BASE_URL: str = "http://litellm:4000"
     LITELLM_API_KEY: str = "sk-bank-internal-key"
+    OLLAMA_BASE_URL: str = "http://ollama:11434"
     LLM_MODEL: str = "ollama/qwen3:8b-q4_K_M"
     EMBEDDING_MODEL: str = "ollama/bge-m3"
     LLM_MAX_TOKENS_SUGGESTION: int = 100
@@ -26,8 +28,8 @@ class Settings(BaseSettings):
     WHISPER_MODEL: str = "Kotib/uzbek_stt_v1"
     WHISPER_DEVICE: str = "cuda"
     WHISPER_COMPUTE_TYPE: str = "float16"
-    WHISPER_BATCH_SIZE_REALTIME: int = 1   # used during live audio_ws streaming
-    WHISPER_BATCH_SIZE_BATCH: int = 16     # used for offline/demo processing
+    WHISPER_BATCH_SIZE_REALTIME: int = 1  # used during live audio_ws streaming
+    WHISPER_BATCH_SIZE_BATCH: int = 16  # used for offline/demo processing
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_PDF_SIZE_MB: int = 50
@@ -36,11 +38,11 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP_TOKENS: int = 50
 
     # RAG retrieval
-    RAG_FINAL_TOP_K: int = 5        # chunks passed to LLM prompt
-    RAG_DENSE_TOP_K: int = 20       # dense (pgvector) candidates
-    RAG_SPARSE_TOP_K: int = 20      # BM25 candidates
-    BM25_K: int = 10                # BM25 retrieval k parameter
-    RRF_K: int = 60                 # Reciprocal Rank Fusion constant
+    RAG_FINAL_TOP_K: int = 5  # chunks passed to LLM prompt
+    RAG_DENSE_TOP_K: int = 20  # dense (pgvector) candidates
+    RAG_SPARSE_TOP_K: int = 20  # BM25 candidates
+    BM25_K: int = 10  # BM25 retrieval k parameter
+    RRF_K: int = 60  # Reciprocal Rank Fusion constant
     EMBEDDING_DIM: int = 1024
 
     # Rate limiting
