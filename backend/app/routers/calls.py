@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_current_user, get_db, require_role
 from app.models.call import Call
 from app.models.user import User
-from app.schemas.call import CallEndResponse, CallResponse, IntakeUpdate
+from app.schemas.call import CallCreate, CallEndResponse, CallHistoryItem, CallResponse, IntakeUpdate
 
 router = APIRouter()
 log = structlog.get_logger()
@@ -17,10 +17,16 @@ log = structlog.get_logger()
 
 @router.post("", response_model=CallResponse, status_code=201)
 async def create_call(
+    body: CallCreate = None,
     db: AsyncSession = Depends(get_db),
     agent: User = Depends(require_role("agent")),
 ):
-    call = Call(agent_id=agent.id, started_at=datetime.utcnow())
+    call = Call(
+        agent_id=agent.id,
+        started_at=datetime.utcnow(),
+        customer_name=body.customer_name if body else None,
+        customer_phone=body.customer_phone if body else None,
+    )
     db.add(call)
     await db.commit()
     await db.refresh(call)

@@ -23,6 +23,7 @@ from app.models.suggestion import SuggestionLog
 from app.services import guardrail_service, llm_service, stt_service, event_bus
 from app.services import compliance_service, sentiment_service
 from app.utils.audio import SpeakerTracker, pcm_to_float32
+from app.data.objections import match_objection
 
 log = structlog.get_logger()
 
@@ -40,6 +41,9 @@ async def start_call(call_id: str, agent_id: str, lang_hint: Optional[str] = Non
         "extraction_done": False,
         "speaker_tracker": SpeakerTracker(),
         "lang_hint": lang_hint,
+        "sentiment_journey": [],
+        "last_sentiment": None,
+        "objection_hits": [],
     }
     async with AsyncSessionLocal() as db:
         existing = await db.execute(select(Call).where(Call.id == call_id))
@@ -167,13 +171,19 @@ async def process_audio_chunk(
         sentiment_result = await sentiment_service.analyze(call_id, text)
         if sentiment_result:
             events.append(_make_event("sentiment", call_id=call_id, **sentiment_result))
+            if state:
+                label = sentiment_result.get("label")
+                if label and label != state.get("last_sentiment"):
+                    state["last_sentiment"] = label
+                    state["sentiment_journey"].append(label)
     except Exception as e:
         log.warning("sentiment.error", error=str(e))
 
-    # Auto extraction at 60 s
+    # Auto extraction at INTAKE_AUTO_TRIGGER_AT_SECONDS
     if state and not state["extraction_done"]:
+        from app.config import settings as _s
         elapsed = time.monotonic() - state["start_time"]
-        if elapsed >= 60.0:
+        if elapsed >= _s.INTAKE_AUTO_TRIGGER_AT_SECONDS:
             asyncio.create_task(_bg_extraction(call_id))
 
     # Guardrail
@@ -188,6 +198,12 @@ async def process_audio_chunk(
         rag_context = await build_context(text)
     except Exception as e:
         log.warning("rag.error", error=str(e))
+
+    # Match objection keyword for real trigger label
+    objection_match = match_objection(text)
+    trigger_label = objection_match[1] if objection_match else text[:60]
+    if state and objection_match:
+        state["objection_hits"].append(objection_match[1])
 
     # LLM suggestion
     suggestion_tokens: list[str] = []
@@ -205,14 +221,14 @@ async def process_audio_chunk(
         latency_ms = int((time.monotonic() - t_start) * 1000)
         log.info("suggestion_emitted", call_id=call_id, latency_ms=latency_ms)
         suggestion_event = _make_event(
-            "suggestion", call_id=call_id, text=bullets, trigger=text[:60]
+            "suggestion", call_id=call_id, text=bullets, trigger=trigger_label
         )
         events.append(suggestion_event)
         try:
             async with AsyncSessionLocal() as db:
                 row = SuggestionLog(
                     call_id=call_id,
-                    trigger=text[:60],
+                    trigger=trigger_label,
                     suggestion="\n".join(bullets),
                     latency_ms=latency_ms,
                 )
@@ -231,14 +247,36 @@ async def finalize_call(call_id: str) -> dict:
     """
     state = _call_state.get(call_id, {})
     transcripts = state.get("transcripts", [])
+    sentiment_journey = state.get("sentiment_journey", [])
+    objection_hits = state.get("objection_hits", [])
     compliance_status = compliance_service.get_status(call_id)
+
+    # Compute top_objection (most frequent hit, tie → first seen)
+    top_objection: Optional[str] = None
+    if objection_hits:
+        from collections import Counter
+        counts = Counter(objection_hits)
+        top_objection = counts.most_common(1)[0][0]
 
     summary = {}
     try:
         from app.services.summary_service import summarize
-        summary = await summarize(call_id, transcripts, compliance_status)
+        summary = await summarize(
+            call_id, transcripts, compliance_status,
+            sentiment_journey=sentiment_journey,
+            top_objection=top_objection,
+        )
     except Exception as e:
         log.error("summary.error", call_id=call_id, error=str(e))
+
+    # Derive outcome + compliance_score from summary
+    raw_outcome = summary.get("outcome", "callback")
+    _outcome_map = {"approved": "won", "won": "won", "rejected": "lost", "lost": "lost"}
+    outcome = _outcome_map.get(raw_outcome, "callback")
+    compliance_holati = summary.get("complianceHolati", {})
+    passed = compliance_holati.get("passed", 0)
+    total = compliance_holati.get("total", 1)
+    compliance_score = round(passed / max(total, 1) * 5)
 
     try:
         async with AsyncSessionLocal() as db:
@@ -248,6 +286,10 @@ async def finalize_call(call_id: str) -> dict:
                 call.ended_at = datetime.utcnow()
                 call.compliance_status = compliance_status
                 call.summary = summary
+                call.outcome = outcome
+                call.compliance_score = compliance_score
+                call.top_objection = top_objection
+                call.sentiment_journey = sentiment_journey
                 if transcripts:
                     call.transcript = transcripts
                 await db.commit()
