@@ -5,9 +5,10 @@ Revises: 0004
 Create Date: 2026-04-26
 
 """
+
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0005"
 down_revision = "0004"
@@ -44,7 +45,9 @@ def upgrade() -> None:
         sa.Column("registration_address", sa.Text(), nullable=True),
         sa.Column("actual_address", sa.Text(), nullable=True),
         sa.Column("region", sa.String(100), nullable=True),
-        sa.Column("is_primary_phone", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "is_primary_phone", sa.Boolean(), nullable=False, server_default="false"
+        ),
         sa.ForeignKeyConstraint(["client_id"], ["clients.client_id"]),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -102,7 +105,12 @@ def upgrade() -> None:
         sa.Column("interest_rate", sa.Numeric(5, 2), nullable=False),
         sa.Column("opened_at", sa.Date(), nullable=True),
         sa.Column("due_at", sa.Date(), nullable=True),
-        sa.Column("remaining_balance", sa.Numeric(18, 2), nullable=False, server_default="0.00"),
+        sa.Column(
+            "remaining_balance",
+            sa.Numeric(18, 2),
+            nullable=False,
+            server_default="0.00",
+        ),
         sa.Column("status", sa.String(20), nullable=False, server_default="active"),
         sa.ForeignKeyConstraint(["client_id"], ["clients.client_id"]),
         sa.PrimaryKeyConstraint("loan_id"),
@@ -144,7 +152,9 @@ def upgrade() -> None:
         sa.Column("credit_score", sa.Integer(), nullable=True),
         sa.Column("credit_history_summary", sa.Text(), nullable=True),
         sa.Column("debt_status", sa.String(50), nullable=True),
-        sa.Column("risk_category", sa.String(20), nullable=False, server_default="medium"),
+        sa.Column(
+            "risk_category", sa.String(20), nullable=False, server_default="medium"
+        ),
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(["client_id"], ["clients.client_id"]),
         sa.PrimaryKeyConstraint("id"),

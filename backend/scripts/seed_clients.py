@@ -7,22 +7,28 @@ Clients:
   2. Nilufar Xasanova — Samarqand, medium risk, no loan, no deposit
   3. Bobur Rahimov   — Andijon, high risk, overdue loan
 """
+
 import asyncio
-import sys
 import os
+import sys
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select
 from app.database import AsyncSessionLocal
-from app.models.client import Client
 from app.models.banking import (
-    Contact, Account, Card, Loan, Deposit, RiskProfile, ClientHistory
+    Account,
+    Card,
+    ClientHistory,
+    Contact,
+    Deposit,
+    Loan,
+    RiskProfile,
 )
-
+from app.models.client import Client
+from sqlalchemy import select
 
 _CLIENTS = [
     {
@@ -201,7 +207,9 @@ async def seed():
 
             # Account + Card
             account_id = str(uuid4())
-            db.add(Account(account_id=account_id, client_id=client_id, **spec["account"]))
+            db.add(
+                Account(account_id=account_id, client_id=client_id, **spec["account"])
+            )
             db.add(Card(account_id=account_id, **spec["card"]))
 
             # Loan
@@ -213,11 +221,13 @@ async def seed():
                 db.add(Deposit(client_id=client_id, **spec["deposit"]))
 
             # Risk profile
-            db.add(RiskProfile(
-                client_id=client_id,
-                updated_at=datetime.utcnow(),
-                **spec["risk"],
-            ))
+            db.add(
+                RiskProfile(
+                    client_id=client_id,
+                    updated_at=datetime.utcnow(),
+                    **spec["risk"],
+                )
+            )
 
             # Client history
             db.add(ClientHistory(client_id=client_id, **spec["history"]))

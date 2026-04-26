@@ -4,17 +4,24 @@ Client profile service.
 Loads banking data for a client, formats a PII-safe summary for LLM
 prompts (≤300 tokens), and derives simple product pitch candidates.
 """
+
 from datetime import date
 from typing import Optional
 
 import structlog
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.models.banking import (
+    Account,
+    ClientHistory,
+    Contact,
+    Deposit,
+    Loan,
+    RiskProfile,
+)
 from app.models.client import Client
-from app.models.banking import Contact, Account, Loan, Deposit, RiskProfile, ClientHistory
 from app.schemas.client import ClientProfile, ProductPitch
 from app.utils.text import mask_phone
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
 
@@ -70,8 +77,13 @@ async def get_profile(db: AsyncSession, client_id: str) -> Optional[ClientProfil
     age_bucket: Optional[str] = None
     if client.birth_date:
         today = date.today()
-        age = today.year - client.birth_date.year - (
-            (today.month, today.day) < (client.birth_date.month, client.birth_date.day)
+        age = (
+            today.year
+            - client.birth_date.year
+            - (
+                (today.month, today.day)
+                < (client.birth_date.month, client.birth_date.day)
+            )
         )
         lower = (age // 10) * 10
         age_bucket = f"{lower}-{lower + 10} yosh"
@@ -141,34 +153,42 @@ def recommendations(profile: ClientProfile) -> list[ProductPitch]:
 
     # Overdue loan → restructuring
     if profile.loan_overdue:
-        pitches.append(ProductPitch(
-            product="Kreditni qayta tuzish",
-            rationale_uz="Mijozda muddati o'tgan kredit bor — qayta tuzish taklif qilish mumkin.",
-            confidence=0.85,
-        ))
+        pitches.append(
+            ProductPitch(
+                product="Kreditni qayta tuzish",
+                rationale_uz="Mijozda muddati o'tgan kredit bor — qayta tuzish taklif qilish mumkin.",
+                confidence=0.85,
+            )
+        )
 
     # No loan, medium/low risk → new loan pitch
     if not profile.has_active_loan and profile.risk_category in ("low", "medium"):
-        pitches.append(ProductPitch(
-            product="Iste'mol krediti",
-            rationale_uz="Mijozda faol kredit yo'q va risk darajasi maqbul — kredit taklif qilish mumkin.",
-            confidence=0.75,
-        ))
+        pitches.append(
+            ProductPitch(
+                product="Iste'mol krediti",
+                rationale_uz="Mijozda faol kredit yo'q va risk darajasi maqbul — kredit taklif qilish mumkin.",
+                confidence=0.75,
+            )
+        )
 
     # No deposit → deposit pitch
     if not profile.has_deposit:
-        pitches.append(ProductPitch(
-            product="Muddatli depozit",
-            rationale_uz="Mijozda depozit mavjud emas — jamg'arma mahsulotini taklif qilish mumkin.",
-            confidence=0.70,
-        ))
+        pitches.append(
+            ProductPitch(
+                product="Muddatli depozit",
+                rationale_uz="Mijozda depozit mavjud emas — jamg'arma mahsulotini taklif qilish mumkin.",
+                confidence=0.70,
+            )
+        )
 
     # High risk + active loan → insurance
     if profile.has_active_loan and profile.risk_category == "high":
-        pitches.append(ProductPitch(
-            product="Kredit sug'urtasi",
-            rationale_uz="Yuqori risk darajasidagi mijozga kredit sug'urtasi taklif qilish mumkin.",
-            confidence=0.65,
-        ))
+        pitches.append(
+            ProductPitch(
+                product="Kredit sug'urtasi",
+                rationale_uz="Yuqori risk darajasidagi mijozga kredit sug'urtasi taklif qilish mumkin.",
+                confidence=0.65,
+            )
+        )
 
     return pitches[:2]

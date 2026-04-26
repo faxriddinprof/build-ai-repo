@@ -6,21 +6,19 @@ GET /customer/{client_id}/call
 - Rate-limited: 10 req/min per IP.
 - Creates a fresh CallQueueEntry, issues a customer_token, returns display info.
 """
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.config import settings
 from app.deps import get_db
 from app.middleware.rate_limit import limiter
 from app.models.client import Client
-from app.models.call_queue import CallQueueEntry
+from app.services import event_bus, queue_service
 from app.services.auth_service import create_customer_token
-from app.services import event_bus
-from app.services import queue_service
 from app.utils.text import mask_phone
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/customer")
 
@@ -36,7 +34,9 @@ async def customer_call_page(
     Public endpoint. Returns display info + ICE servers + customer_token.
     Creates a fresh CallQueueEntry associated with the client.
     """
-    res = await db.execute(select(Client).where(Client.client_id == client_id, Client.is_active == True))
+    res = await db.execute(
+        select(Client).where(Client.client_id == client_id, Client.is_active == True)
+    )
     client = res.scalar_one_or_none()
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -46,6 +46,7 @@ async def customer_call_page(
     region: Optional[str] = None
     try:
         from app.models.banking import Contact
+
         c_res = await db.execute(
             select(Contact)
             .where(Contact.client_id == client_id, Contact.is_primary_phone == True)
@@ -81,14 +82,17 @@ async def customer_call_page(
     entry.customer_token_jti = jti
     await db.commit()
 
-    await event_bus.publish("supervisor", {
-        "type": "queue_added",
-        "queue_id": entry.id,
-        "masked_phone": masked,
-        "region": region,
-        "client_id": client_id,
-        "priority": "normal",
-    })
+    await event_bus.publish(
+        "supervisor",
+        {
+            "type": "queue_added",
+            "queue_id": entry.id,
+            "masked_phone": masked,
+            "region": region,
+            "client_id": client_id,
+            "priority": "normal",
+        },
+    )
 
     ice_servers = [{"urls": url} for url in settings.STUN_SERVERS]
 

@@ -2,19 +2,47 @@ import re
 from typing import AsyncIterator, Optional, Union
 
 import structlog
-from litellm import acompletion
-
 from app.config import settings
-from app.prompts.system_uz import SYSTEM_PROMPT, SUGGESTION_TEMPLATE
+from app.prompts.system_uz import SUGGESTION_TEMPLATE, SYSTEM_PROMPT
+from litellm import acompletion
 
 log = structlog.get_logger()
 
 _UZ_WORDS = {
-    "va", "bu", "bir", "emas", "bilan", "uchun", "ham", "lekin", "yoki",
-    "foiz", "kredit", "karta", "omonat", "stavka", "muddat", "balans",
-    "yillik", "oylik", "qarz", "tolov", "bank", "mijoz", "agent",
-    "hisobvaraq", "valyuta", "depozit", "ipoteka", "overdraft",
-    "taklif", "javob", "qiymat", "narx", "chegirma", "ruxsat",
+    "va",
+    "bu",
+    "bir",
+    "emas",
+    "bilan",
+    "uchun",
+    "ham",
+    "lekin",
+    "yoki",
+    "foiz",
+    "kredit",
+    "karta",
+    "omonat",
+    "stavka",
+    "muddat",
+    "balans",
+    "yillik",
+    "oylik",
+    "qarz",
+    "tolov",
+    "bank",
+    "mijoz",
+    "agent",
+    "hisobvaraq",
+    "valyuta",
+    "depozit",
+    "ipoteka",
+    "overdraft",
+    "taklif",
+    "javob",
+    "qiymat",
+    "narx",
+    "chegirma",
+    "ruxsat",
 }
 _UZ_SPECIFIC_CHARS = re.compile(r"[ʻʼO'o'g'G'ʻʼ]|sh|ch|ng", re.IGNORECASE)
 
@@ -67,11 +95,14 @@ async def get_suggestion(
     """Stream suggestion tokens. Returns empty if language assertion fails twice."""
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": SUGGESTION_TEMPLATE.format(
-            client_facts=client_facts,
-            customer_text=customer_text,
-            rag_context=rag_context or "Mavjud emas.",
-        )},
+        {
+            "role": "user",
+            "content": SUGGESTION_TEMPLATE.format(
+                client_facts=client_facts,
+                customer_text=customer_text,
+                rag_context=rag_context or "Mavjud emas.",
+            ),
+        },
     ]
 
     for attempt in range(2):
@@ -100,7 +131,9 @@ async def get_suggestion(
         log.warning("llm.non_uzbek_output", attempt=attempt, text=full[:80])
         if attempt == 0:
             messages.append({"role": "assistant", "content": full})
-            messages.append({"role": "user", "content": "FAQAT O'ZBEK TILIDA javob ber."})
+            messages.append(
+                {"role": "user", "content": "FAQAT O'ZBEK TILIDA javob ber."}
+            )
         else:
             log.error("llm.language_enforcement_failed")
             return
@@ -108,6 +141,7 @@ async def get_suggestion(
 
 async def warmup() -> None:
     import time
+
     t0 = time.monotonic()
     try:
         await chat(

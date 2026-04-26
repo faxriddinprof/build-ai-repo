@@ -6,12 +6,12 @@ from the hybrid RAG store. Provides context for both:
   - LLM #1: SALES_RECOMMENDATION_PROMPT (debounced 30 s)
   - LLM #2: LIVE_SCRIPT_PROMPT (per-objection or per-3-turns)
 """
+
 from typing import Optional
 
 import structlog
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.schemas.client import ClientProfile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger()
 
@@ -30,8 +30,8 @@ async def build_context(
             "pitches": list[dict],  # from recommendations()
         }
     """
-    from app.services.rag_service import build_context as _rag_build_context
     from app.services.client_profile_service import format_for_llm, recommendations
+    from app.services.rag_service import build_context as _rag_build_context
 
     # Client facts (PII-safe)
     client_facts = ""
@@ -42,7 +42,9 @@ async def build_context(
 
     # Product/policy KB chunks
     try:
-        doc_context = await _rag_build_context(query, client_profile=client_profile, top_k=top_k, db=db)
+        doc_context = await _rag_build_context(
+            query, client_profile=client_profile, top_k=top_k, db=db
+        )
     except Exception as e:
         log.warning("sales_rag.doc_context_failed", error=str(e))
         doc_context = "Mavjud emas."
