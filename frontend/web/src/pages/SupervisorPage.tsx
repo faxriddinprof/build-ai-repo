@@ -69,7 +69,7 @@ function ActiveCallCard({ call, onClick }: { call: ActiveCall; onClick: () => vo
           />
           <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>{call.name}</span>
         </div>
-        <SentimentBadge sentiment={call.sentiment} />
+        {call.sentiment && <SentimentBadge sentiment={call.sentiment} />}
       </div>
 
       {/* Agent + region row */}

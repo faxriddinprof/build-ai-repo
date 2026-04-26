@@ -43,8 +43,9 @@ export function IncomingCallModal({ queue, onAccept, onSkip }: IncomingCallModal
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.45)',
-    backdropFilter: 'blur(4px)',
+    background: 'rgba(0,0,0,0.55)',
+    backdropFilter: 'blur(6px)',
+    WebkitBackdropFilter: 'blur(6px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -54,12 +55,10 @@ export function IncomingCallModal({ queue, onAccept, onSkip }: IncomingCallModal
   const cardStyle: React.CSSProperties = {
     width: '100%',
     maxWidth: 440,
-    background: 'var(--surface-glass)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid var(--ai-glow-edge)',
+    background: 'var(--surface-1)',
+    border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--r-xl)',
-    boxShadow: 'var(--shadow-modal)',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2)',
     overflow: 'hidden',
     animation: 'slide-in-top 280ms var(--ease-spring) both',
   }
