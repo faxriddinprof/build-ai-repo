@@ -22,19 +22,32 @@ class TranscribeResult:
 
 
 def load_model() -> None:
-    """Load faster-whisper into VRAM. Called once at startup."""
+    """Load faster-whisper. Falls back to CPU if GPU/CUDA libs are unavailable."""
     global _model
     if _model is not None:
         return
     from faster_whisper import WhisperModel
 
-    log.info("stt.loading", model=settings.WHISPER_MODEL, device=settings.WHISPER_DEVICE)
-    _model = WhisperModel(
-        settings.WHISPER_MODEL,
-        device=settings.WHISPER_DEVICE,
-        compute_type=settings.WHISPER_COMPUTE_TYPE,
-    )
-    log.info("stt.loaded")
+    device = settings.WHISPER_DEVICE
+    compute_type = settings.WHISPER_COMPUTE_TYPE
+    log.info("stt.loading", model=settings.WHISPER_MODEL, device=device)
+    try:
+        _model = WhisperModel(
+            settings.WHISPER_MODEL,
+            device=device,
+            compute_type=compute_type,
+        )
+    except Exception as e:
+        if device != "cpu":
+            log.warning("stt.cuda_unavailable_fallback_cpu", error=str(e))
+            _model = WhisperModel(
+                settings.WHISPER_MODEL,
+                device="cpu",
+                compute_type="int8",
+            )
+        else:
+            raise
+    log.info("stt.loaded", device=_model.model.device if hasattr(_model, "model") else device)
 
 
 def _transcribe_sync(audio: np.ndarray, language_hint: Optional[str]) -> TranscribeResult:
