@@ -17,7 +17,7 @@ The backend owns:
 1. **Real-time speech-to-text** — receives audio chunks over WebSocket, transcribes via faster-whisper.
 2. **Guardrail filtering** — drops non-bank text before any LLM call.
 3. **RAG retrieval** — embeds queries with `nomic-embed-text`, searches pgvector for top-k document chunks.
-4. **LLM orchestration** — calls Qwen3-8B via LiteLLM for: suggestions, customer-info extraction, post-call summary.
+4. **LLM orchestration** — calls Qwen3-8B via the `litellm` Python SDK (direct to Ollama, no proxy) for: suggestions, customer-info extraction, post-call summary.
 5. **Sentiment & compliance scoring** — keyword + LLM-assisted real-time analysis.
 6. **PDF ingestion** — extracts text, chunks it, embeds it, stores in pgvector.
 7. **Persistence** — calls, transcripts, suggestion logs, documents, users.
@@ -35,7 +35,7 @@ The backend owns:
 | DB driver | `asyncpg` | latest |
 | Vector store | `pgvector` PostgreSQL extension + `pgvector` Python | 0.7+ |
 | STT | `faster-whisper` `large-v3` | latest |
-| LLM gateway | LiteLLM | latest |
+| LLM SDK | `litellm` (Python SDK, in-process — no proxy container) | 1.48.x |
 | LLM runtime | Ollama (Qwen3-8B Q4_K_M, nomic-embed-text) | latest |
 | PDF parsing | PyMuPDF (`fitz`) | latest |
 | Auth | `python-jose[cryptography]`, `passlib[bcrypt]` | latest |
@@ -47,7 +47,7 @@ The backend owns:
 
 - **All LLM responses must be in Uzbek** — enforced by the system prompt; assertion + single retry post-output.
 - **Non-bank text never reaches the LLM** — guardrail drops silently.
-- **No external API calls** — `litellm` proxies only to local Ollama.
+- **No external API calls** — the `litellm` SDK posts only to the local Ollama HTTP API.
 - **Customer passport never appears in supervisor WebSocket payloads** — server-side scrub.
 
 ---
@@ -151,8 +151,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_TTL_HOURS: int = 8
     REFRESH_TOKEN_TTL_DAYS: int = 30
 
-    # LiteLLM / Ollama
-    LITELLM_BASE_URL: str = "http://litellm:4000"
+    # LLM / Ollama (litellm SDK posts directly to Ollama; no proxy)
+    LLM_BASE_URL: str = "http://ollama:11434"
+    LLM_API_KEY: str = "sk-bank-internal-key"  # ignored by Ollama; kept for SDK compatibility
     LLM_MODEL: str = "ollama/qwen3:8b-q4_K_M"
     EMBEDDING_MODEL: str = "ollama/nomic-embed-text"
     LLM_MAX_TOKENS_SUGGESTION: int = 100
@@ -375,7 +376,7 @@ After the LLM responds, run `detect_language(output)`. If not Uzbek (`uz`), retr
 
 ### 8.1 Module (`services/llm_service.py`)
 
-Wraps LiteLLM. All Ollama traffic goes through LiteLLM's OpenAI-compatible proxy.
+Wraps the `litellm` Python SDK (`from litellm import acompletion`). All Ollama traffic goes directly to `LLM_BASE_URL` (`http://ollama:11434/api/{generate,embed}`) — there is no proxy container in the data path.
 
 ```python
 async def chat(
@@ -410,7 +411,7 @@ USER: Mijoz so'zi: "{customer_text}"
 In `app/main.py`'s startup event:
 
 1. Load faster-whisper into VRAM.
-2. Issue a 1-token dummy `chat` call to LiteLLM to warm Qwen3.
+2. Issue a 1-token dummy `chat` call via the litellm SDK to warm Qwen3.
 3. Issue a 1-token dummy embed call to warm `nomic-embed-text`.
 
 This eliminates cold-start latency on the first real call.
@@ -423,7 +424,7 @@ This eliminates cold-start latency on the first real call.
 
 ```python
 async def embed(text: str) -> list[float]:
-    """Calls LiteLLM embeddings endpoint."""
+    """Calls Ollama's embeddings endpoint via the litellm SDK (`aembedding`)."""
 
 async def search(query: str, top_k: int = 5, tag_filter: str | None = None) -> list[Chunk]:
     """Embeds query, searches pgvector via cosine similarity, returns top_k chunks."""
@@ -829,10 +830,10 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--worker
 ```yaml
 api:
   build: ./backend
-  depends_on: [postgres, ollama, litellm]
+  depends_on: [postgres, ollama]
   environment:
     - DATABASE_URL=postgresql+asyncpg://...
-    - LITELLM_BASE_URL=http://litellm:4000
+    - LLM_BASE_URL=http://ollama:11434
     - JWT_SECRET=${JWT_SECRET}
   volumes:
     - ./backend/uploads:/app/uploads
@@ -892,7 +893,7 @@ Run all four demo scenarios via Demo Mode endpoint and verify each FR-acceptance
 1. `stt_service` with faster-whisper warm-up.
 2. `audio_ws` router: `start_call`, `audio_chunk`, `end_call`; emits `transcript` events.
 3. `guardrail_service` + tests.
-4. `llm_service` with LiteLLM streaming.
+4. `llm_service` with litellm SDK streaming.
 5. Hard-coded suggestion prompt (no RAG context yet) — verify Uzbek-only enforcement.
 6. **Acceptance:** browser sends WAV, transcript streams back, suggestion fires on objection keyword, language assertion passes.
 
@@ -918,7 +919,7 @@ Run all four demo scenarios via Demo Mode endpoint and verify each FR-acceptance
 | Risk | Mitigation |
 |------|-----------|
 | Cold-start latency miss | Warm models at boot via dummy inferences |
-| LiteLLM proxy crashes | Compose `restart: unless-stopped`; healthcheck retries |
+| Ollama container crashes | Compose `restart: unless-stopped`; healthcheck retries; litellm SDK reconnects on next call |
 | Long PDFs blow context window | Token-count chunks server-side; reject docs > N pages with a clear error |
 | Connection pool exhaustion under load | Pool sized for hackathon traffic (10) — document and bump for pilot |
 | Embedding model returns wrong dim | Assertion at startup that probe embedding length == `EMBEDDING_DIM` |

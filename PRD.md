@@ -81,7 +81,7 @@ Single bank instance. No self-registration. Admin creates all accounts.
 | **FR-STT** | `faster-whisper large-v3` transcribes chunks. Supports `uz` (Uzbek) and `ru` (Russian). Per-chunk latency ≤ 500 ms. Simple energy-based speaker turn detection (Agent / Customer). |
 | **FR-Guardrail** | `GuardrailService.is_bank_related(text)` keyword check before any LLM call. Non-bank text → DROP silently (no LLM call, suggestion panel stays empty). All LLM system prompts hardcode Uzbek-only output. |
 | **FR-RAG** | Ingest: PDF → PyMuPDF → 500-token chunks (50-token overlap) → `nomic-embed-text` (768-dim) → pgvector. Query: embed last 2–3 transcript sentences → top-5 cosine similarity → inject as LLM context. |
-| **FR-Suggestions** | `llm_service` calls Qwen3-8B via LiteLLM. Max 100 output tokens, streamed (first token ≤ 150 ms). Triggered on objection keyword or question keyword in transcript. |
+| **FR-Suggestions** | `llm_service` calls Qwen3-8B via the `litellm` Python SDK (direct to Ollama, no proxy). Max 100 output tokens, streamed (first token ≤ 150 ms). Triggered on objection keyword or question keyword in transcript. |
 | **FR-Sentiment** | `sentiment_service`: keyword scan (positive / neutral / negative word lists) + optional LLM confirmation. Output: 3-state label → WebSocket push to agent. |
 | **FR-Compliance** | `compliance_service`: predefined `REQUIRED_PHRASES` (e.g. interest rate disclosure, data consent). Fuzzy-match on transcript → WebSocket push when detected. Unchecked items shown as ❌ after call. |
 | **FR-Intake** | `extraction_service`: sliding 60 s window at call start sent to Qwen3-8B for structured extraction of `customer_name`, `customer_passport_number`, `customer_region` as JSON. Agent sees Intake Confirmation Card; confirms or edits. `PATCH /api/calls/:id/intake` saves values. Confidence < 0.8 → fields left blank for manual entry. |
@@ -131,13 +131,12 @@ FastAPI Backend
   ├── Guardrail Service    keyword filter, drops non-bank
   ├── Extraction Service   Qwen3-8B: name / passport / region
   ├── RAG Service          pgvector cosine search
-  ├── LLM Service          Qwen3-8B via LiteLLM → suggestions
+  ├── LLM Service          Qwen3-8B via litellm SDK → suggestions
   ├── Sentiment Service
   ├── Compliance Service
   └── Summary Service      post-call
 
-Ollama → Qwen3-8B + nomic-embed-text
-LiteLLM → OpenAI-compatible proxy to Ollama
+Ollama → Qwen3-8B + nomic-embed-text (called directly by the api over HTTP via the litellm Python SDK; no proxy in the data path)
 PostgreSQL + pgvector → documents, document_chunks, calls, users, suggestions_log
 ```
 
@@ -255,7 +254,7 @@ CREATE INDEX ON document_chunks USING ivfflat (embedding vector_cosine_ops);
 
 | Week | Deliverable |
 |------|-------------|
-| W1 | Docker Compose: postgres+pgvector, ollama, litellm, FastAPI skeleton, React Vite shell, JWT auth end-to-end |
+| W1 | Docker Compose: postgres+pgvector, ollama, FastAPI skeleton (litellm SDK in-process), React Vite shell, JWT auth end-to-end |
 | W2 | Browser mic → WS → STT → live transcript on Agent Dashboard; Guardrail service; basic LLM suggestion loop (no RAG) |
 | W3 | PDF ingest + pgvector RAG; Intake extraction service + Confirmation Card; Sentiment + Compliance services; Supervisor WS |
 | W4 | Post-call summary; Demo Mode WAV playback; Admin Panel UI; dark-theme polish; full end-to-end demo rehearsal |
