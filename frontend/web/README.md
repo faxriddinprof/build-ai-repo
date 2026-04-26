@@ -13,6 +13,11 @@ pnpm dev          # starts on http://localhost:5173
 The dev server proxies `/api`, `/ws`, and `/customer` to `http://localhost:8000`.  
 Backend must be running: `docker compose up` from the repo root.
 
+To seed demo clients (required for the customer page):
+```bash
+docker compose exec api python scripts/seed_clients.py
+```
+
 ---
 
 ## Roles and pages
@@ -37,10 +42,12 @@ The main AI cockpit. Requires `agent` or `admin` role.
 6. Click **Yangi qo'ng'iroq** to reset and accept the next call.
 
 **Demo mode** (toggle in the top bar):
-- ON — plays the scripted Bekzod Karimov demo call; no backend audio required. Useful for demos without live infrastructure.
-- OFF — connects to the real backend; requires microphone permission.
+- **ON** — plays the scripted Bekzod Karimov demo call; no backend audio required. Useful for demos without live infrastructure.
+- **OFF** — connects to the real backend; requires microphone permission.
 
 **Skip a call:** In the IncomingCallModal click **O'tkazib yuborish**, choose a reason from the dropdown, and optionally add a note.
+
+**Theme toggle:** Sun/moon icon in the top bar switches between light and dark mode (persisted to localStorage).
 
 ---
 
@@ -48,7 +55,12 @@ The main AI cockpit. Requires `agent` or `admin` role.
 
 Live monitoring of all active agent calls. Requires `supervisor` or `admin` role.
 
-> Phase 5 — coming soon.
+**What you see:**
+- **Faol qo'ng'iroqlar tab** — grid of active call cards, each showing customer name, agent, live duration timer, sentiment badge, and top objection chip. Click any card to open the transcript drawer.
+- **Tarix tab** — paginated call history table with outcome filter chips (all / completed / failed / transferred), showing duration, sentiment, compliance score, and date.
+- **Transcript drawer** (slides in from right) — full speaker-labelled transcript for the selected call, with a privacy notice confirming passport data is scrubbed. Press Escape or click the backdrop to close.
+
+Active calls refresh every 5 seconds; the supervisor WebSocket (`/ws/supervisor`) triggers immediate invalidation on any event.
 
 ---
 
@@ -69,14 +81,14 @@ password: changeme
 No login required. This is the page a customer opens via a shared link.
 
 **Flow:**
-1. Page loads and automatically registers the customer in the queue.
-2. Customer sees a hero call button and their name (e.g. "Salom, Bekzod K.!").
+1. Page loads and fetches the customer's display name and queue token.
+2. Customer sees a hero call button and their name (e.g. "Salom, Davron M.!").
 3. Tap **Bog'lanish** — status changes to "Operator qidirilmoqda…" and a wait timer starts.
 4. When an agent accepts, WebRTC connects automatically and the call begins.
 5. Tap **Qo'ng'iroqni yakunlash** to hang up.
 
 **URL format:** `http://localhost:5173/customer/<client_id>/call`  
-The `client_id` comes from the database (seeded via `make setup` or the admin API).
+The `client_id` is a UUID printed by `scripts/seed_clients.py`.
 
 ---
 
