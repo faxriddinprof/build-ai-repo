@@ -16,7 +16,7 @@
 
 ## 📌 Overview
 
-**Sale Assistant Bot** — bu bank call center agentlari uchun real-time AI yordamchi tizim. Agent mijoz bilan telefonda gaplashayotgan paytda, tizim suhbatni tahlil qilib, **1–2 soniya ichida** ekranda mos javoblar, tavsiyalar va mahsulot ma'lumotlarini ko'rsatadi.
+**Neo** — bu bank call center agentlari uchun real-time AI yordamchi tizim. Agent mijoz bilan telefonda gaplashayotgan paytda, tizim suhbatni tahlil qilib, **1–2 soniya ichida** ekranda mos javoblar, tavsiyalar va mahsulot ma'lumotlarini ko'rsatadi.
 
 ---
 
