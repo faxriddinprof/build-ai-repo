@@ -19,6 +19,7 @@ from app.logging_config import RequestIdMiddleware, setup_logging
 from app.middleware.rate_limit import _rate_limit_exceeded_handler, limiter
 from app.routers import admin_users, auth, calls
 from app.routers.admin_documents import router as admin_documents_router
+from app.routers.clients import router as clients_router
 from app.routers.demo import router as demo_router
 from app.routers.signaling_ws import router as signaling_ws_router
 from app.routers.supervisor_api import router as supervisor_api_router
@@ -112,6 +113,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users.router, prefix="/api/admin", tags=["admin"])
 app.include_router(admin_documents_router, prefix="/api/admin", tags=["admin"])
 app.include_router(calls.router, prefix="/api/calls", tags=["calls"])
+app.include_router(clients_router, tags=["clients"])
 app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
 app.include_router(signaling_ws_router, tags=["websocket"])
 app.include_router(supervisor_ws_router, tags=["websocket"])

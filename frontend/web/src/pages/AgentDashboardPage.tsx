@@ -1,14 +1,14 @@
 import type React from 'react'
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useCallSession } from '../hooks/useCallSession'
 import { useScriptedSession } from '../hooks/useScriptedSession'
+import { usePttSession } from '../hooks/usePttSession'
+import { useDemoClients } from '../hooks/useDemoClients'
 import { useDemoModeStore } from '../store/demoModeStore'
 import { useAuthStore } from '../store/authStore'
 import { useThemeStore } from '../store/themeStore'
 import { DEMO_TIMELINE } from '../data/demoTimeline'
 import { fmtTime } from '../lib/format'
-import api from '../lib/api'
 
 import { Logo } from '../components/primitives/Logo'
 import { Avatar } from '../components/primitives/Avatar'
@@ -23,6 +23,8 @@ import { ChatThread } from '../components/call/ChatThread'
 import { SuggestionCard } from '../components/call/SuggestionCard'
 import { ComplianceChip } from '../components/call/ComplianceChip'
 import { PostCallSummary } from '../components/PostCallSummary'
+import { CustomerSelector } from '../components/call/CustomerSelector'
+import { SalesRecommendationPanel } from '../components/call/SalesRecommendationPanel'
 
 // ---------------------------------------------------------------------------
 // We render BOTH hooks unconditionally (Rules of Hooks), but only use the
@@ -34,33 +36,21 @@ export default function AgentDashboardPage() {
   const { theme, setTheme } = useThemeStore()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const realSession = useCallSession()
+  // Always call both hooks unconditionally
+  const pttSession = usePttSession()
   const demoSession = useScriptedSession()
-  const session = demoEnabled ? demoSession : realSession
+  const { clients } = useDemoClients()
+
+  // Active session state — demo uses scripted session; live uses PTT session
+  const session = demoEnabled ? demoSession : pttSession
+
+  // Customer selector state
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
 
   // Copy toast
   const [copyToast, setCopyToast] = useState(false)
   const copyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [aiEnabled, setAiEnabled] = useState(true)
-
-  // Resume call from URL param on page refresh (real mode only)
-  useEffect(() => {
-    if (demoEnabled) return
-    const callId = searchParams.get('call_id')
-    if (!callId) return
-    api.get<{ ended_at: string | null }>(`/api/calls/${callId}`)
-      .then(({ data }) => {
-        if (!data.ended_at) {
-          realSession.start(callId)
-        } else {
-          setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
-        }
-      })
-      .catch(() => {
-        setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
-      })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Clear call_id param whenever session ends for any reason
   useEffect(() => {
@@ -75,37 +65,34 @@ export default function AgentDashboardPage() {
     copyToastTimerRef.current = setTimeout(() => setCopyToast(false), 1500)
   }, [])
 
-  // Start a new call — creates call via API then starts session
+  // Start call — demo and live have different signatures
   const handleStartCall = useCallback(async () => {
     if (demoEnabled) {
-      // In demo mode, use a synthetic call ID
-      session.start('demo-call-' + Date.now())
+      demoSession.start('demo-call-' + Date.now())
       return
     }
-    try {
-      const res = await api.post<{ id: string }>('/api/calls', {})
-      const callId = res.data.id
-      setSearchParams({ call_id: callId }, { replace: true })
-      realSession.start(callId)
-    } catch (err) {
-      console.error('Failed to create call', err)
+    await pttSession.startCall(selectedClientId)
+    if (pttSession.callId) {
+      setSearchParams({ call_id: pttSession.callId }, { replace: true })
     }
-  }, [demoEnabled, session, realSession, setSearchParams])
+  }, [demoEnabled, demoSession, pttSession, selectedClientId, setSearchParams])
 
   // End call
   const handleEndCall = useCallback(() => {
-    session.endCall()
-    if (!demoEnabled) {
+    if (demoEnabled) {
+      demoSession.endCall()
+    } else {
+      void pttSession.endCall()
       setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
     }
-  }, [demoEnabled, session, setSearchParams])
+  }, [demoEnabled, demoSession, pttSession, setSearchParams])
 
   // Reset after summary close
   const handleSummaryClose = useCallback(() => {
-    realSession.reset()
+    pttSession.reset()
     demoSession.reset()
     setSearchParams((p) => { p.delete('call_id'); return p }, { replace: true })
-  }, [realSession, demoSession, setSearchParams])
+  }, [pttSession, demoSession, setSearchParams])
 
   // Determine compliance items to show
   const complianceItems = DEMO_TIMELINE.compliance
@@ -185,6 +172,9 @@ export default function AgentDashboardPage() {
   const doneCount = session.complianceDone.length
   const totalCount = complianceItems.length
 
+  // PTT status for live mode button logic
+  const pttStatus = pttSession.pttStatus
+
   return (
     <div style={pageStyle}>
       {/* ------------------------------------------------------------------ */}
@@ -211,7 +201,7 @@ export default function AgentDashboardPage() {
 
         {/* Mode chip */}
         <Badge tone={demoEnabled ? 'ai' : 'blue'} size="sm">
-          {demoEnabled ? 'Demo rejimi' : 'Self-talk rejimi'}
+          {demoEnabled ? 'Demo rejimi' : 'PTT rejimi'}
         </Badge>
 
         {/* Sentiment */}
@@ -282,11 +272,11 @@ export default function AgentDashboardPage() {
             <ChatThread
               transcripts={session.transcripts}
               aiAnswers={session.aiAnswers}
-              isListening={session.status === 'active'}
+              isListening={demoEnabled ? session.status === 'active' : pttStatus === 'recording'}
             />
           </div>
 
-          {/* Start / Stop button */}
+          {/* PTT / Start-Stop controls */}
           <div
             style={{
               padding: '12px 16px',
@@ -294,26 +284,66 @@ export default function AgentDashboardPage() {
               background: 'var(--surface-1)',
               display: 'flex',
               justifyContent: 'center',
+              gap: 8,
               flexShrink: 0,
+              flexWrap: 'wrap',
             }}
           >
-            {session.status === 'idle' || session.status === 'ended' ? (
-              <Button variant="primary" size="md" icon="mic" onClick={handleStartCall}>
-                Suhbatni boshlash
-              </Button>
-            ) : session.status === 'connecting' ? (
-              <Button variant="primary" size="md" disabled>
-                Ulanmoqda…
-              </Button>
+            {demoEnabled ? (
+              /* Demo mode — simple start/stop */
+              session.status === 'idle' || session.status === 'ended' ? (
+                <Button variant="primary" size="md" icon="mic" onClick={handleStartCall}>
+                  Suhbatni boshlash
+                </Button>
+              ) : (
+                <Button variant="danger" size="md" icon="phone-off" onClick={handleEndCall}>
+                  Tugatish
+                </Button>
+              )
             ) : (
-              <Button variant="danger" size="md" icon="phone-off" onClick={handleEndCall}>
-                Tugatish
-              </Button>
+              /* Live PTT mode */
+              <>
+                {(pttStatus === 'idle' || pttStatus === 'ended') && (
+                  <Button
+                    variant="primary"
+                    size="md"
+                    icon="mic"
+                    onClick={handleStartCall}
+                    disabled={!selectedClientId}
+                  >
+                    Suhbatni boshlash
+                  </Button>
+                )}
+                {pttStatus === 'call_active' && (
+                  <Button
+                    variant="primary"
+                    size="md"
+                    icon="mic"
+                    onClick={() => pttSession.startSpeaking()}
+                  >
+                    🎙 Gapirish
+                  </Button>
+                )}
+                {pttStatus === 'recording' && (
+                  <Button
+                    variant="danger"
+                    size="md"
+                    onClick={() => void pttSession.stopAndSendChunk()}
+                  >
+                    ⏸ Pauza
+                  </Button>
+                )}
+                {pttStatus === 'sending' && (
+                  <Button variant="primary" size="md" disabled>
+                    Yuborilmoqda…
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </section>
 
-        {/* Right: Suggestions */}
+        {/* Right: Suggestions + Customer Selector + Sales Recommendations */}
         <section style={suggestionPanelStyle}>
           <div style={{ ...panelHeaderStyle, background: 'var(--surface-2)' }}>
             <Icon name="sparkles" size={15} style={{ color: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)' }} />
@@ -372,6 +402,19 @@ export default function AgentDashboardPage() {
             pointerEvents: aiEnabled ? 'auto' : 'none',
             transition: 'opacity 200ms ease',
           }}>
+            {/* Customer selector — top of right panel, live mode only */}
+            {!demoEnabled && (
+              <>
+                <CustomerSelector
+                  clients={clients}
+                  selectedId={selectedClientId}
+                  onSelect={setSelectedClientId}
+                  disabled={pttStatus !== 'idle' && pttStatus !== 'ended'}
+                />
+                <div style={{ borderTop: '1px solid var(--border-subtle)', opacity: 0.5 }} />
+              </>
+            )}
+
             {!aiEnabled ? (
               <div style={{
                 display: 'flex',
@@ -398,6 +441,14 @@ export default function AgentDashboardPage() {
                   onCopy={handleCopy}
                 />
               ))
+            )}
+
+            {/* Sales recommendations — bottom of right panel, live mode only */}
+            {!demoEnabled && (
+              <SalesRecommendationPanel
+                clientId={selectedClientId}
+                disabled={pttStatus === 'idle'}
+              />
             )}
           </div>
 

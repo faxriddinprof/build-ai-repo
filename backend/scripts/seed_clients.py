@@ -1,6 +1,6 @@
 """
 Seed 3 demo client profiles for hackathon demo.
-Idempotent — checks by first_name+last_name before inserting.
+Idempotent — checks by client_id before inserting.
 
 Clients:
   1. Jasur Toshmatov — Toshkent, low risk, active loan + deposit
@@ -30,8 +30,16 @@ from app.models.banking import (
 from app.models.client import Client
 from sqlalchemy import select
 
+# Fixed deterministic UUIDs for the 3 demo clients — stable across re-seeds.
+_DEMO_CLIENT_IDS = [
+    "00000000-0001-0001-0001-000000000001",  # Jasur Toshmatov
+    "00000000-0002-0002-0002-000000000002",  # Nilufar Xasanova
+    "00000000-0003-0003-0003-000000000003",  # Bobur Rahimov
+]
+
 _CLIENTS = [
     {
+        "client_id": "00000000-0001-0001-0001-000000000001",
         "client": {
             "first_name": "Jasur",
             "last_name": "Toshmatov",
@@ -88,6 +96,7 @@ _CLIENTS = [
         },
     },
     {
+        "client_id": "00000000-0002-0002-0002-000000000002",
         "client": {
             "first_name": "Nilufar",
             "last_name": "Xasanova",
@@ -130,6 +139,7 @@ _CLIENTS = [
         },
     },
     {
+        "client_id": "00000000-0003-0003-0003-000000000003",
         "client": {
             "first_name": "Bobur",
             "last_name": "Rahimov",
@@ -185,19 +195,16 @@ async def seed():
     async with AsyncSessionLocal() as db:
         for spec in _CLIENTS:
             c = spec["client"]
-            # Idempotent: skip if already exists
+            client_id = spec["client_id"]
+            # Idempotent: skip if already exists (check by fixed client_id)
             res = await db.execute(
-                select(Client).where(
-                    Client.first_name == c["first_name"],
-                    Client.last_name == c["last_name"],
-                )
+                select(Client).where(Client.client_id == client_id)
             )
             existing = res.scalar_one_or_none()
             if existing:
-                print(f"Skipping existing client: {c['first_name']} {c['last_name']}")
+                print(f"Skipping existing client: {c['first_name']} {c['last_name']} ({client_id})")
                 continue
 
-            client_id = str(uuid4())
             client = Client(client_id=client_id, **c)
             db.add(client)
             await db.flush()
