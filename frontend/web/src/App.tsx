@@ -5,6 +5,7 @@ import { useAuthStore } from './store/authStore'
 import { useThemeStore } from './store/themeStore'
 import LoginPage from './pages/LoginPage'
 import AgentDashboardPage from './pages/AgentDashboardPage'
+import CustomerCallPage from './pages/CustomerCallPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 const queryClient = new QueryClient({
@@ -59,7 +60,7 @@ export default function App() {
           />
           <Route
             path="/customer/:clientId/call"
-            element={<div style={{ color: 'var(--text-primary)', padding: 32 }}>Customer Call — coming soon</div>}
+            element={<CustomerCallPage />}
           />
           <Route path="/" element={<RootRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />
