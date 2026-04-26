@@ -108,10 +108,10 @@ bash:           ## Open a bash shell inside the API container
 
 # ── quick verification ────────────────────────────────────────────────────────
 health:         ## Hit /healthz and pretty-print the response
-	@curl -s http://localhost:8000/healthz | python3 -m json.tool
+	@curl -s http://localhost:8765/healthz | python3 -m json.tool
 
 login:          ## Login with admin credentials and print the access token
-	@curl -s -X POST http://localhost:8000/api/auth/login \
+	@curl -s -X POST http://localhost:8765/api/auth/login \
 	  -H 'Content-Type: application/json' \
 	  -d '{"email":"admin@bank.uz","password":"changeme"}' \
 	  | python3 -m json.tool
