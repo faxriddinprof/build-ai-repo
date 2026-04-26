@@ -1,6 +1,6 @@
 SUMMARY_PROMPT = """\
 You are an assistant that summarizes bank call center conversations.
-Read the conversation below and return ONLY valid JSON. No extra text.
+Read the conversation below and return ONLY valid JSON. No extra text. /no_think
 
 {{
   "outcome": "approved" | "rejected" | "follow_up" | "no_decision",

@@ -28,3 +28,9 @@ av>=10.0.0
 pydub>=0.25.1
 slowapi==0.1.9
 jinja2==3.1.4
+
+# STT model conversion (Kotib/uzbek_stt_v1 → CTranslate2 via scripts/convert_stt_model.py).
+# CPU build of torch — for GPU server, swap to https://download.pytorch.org/whl/cu121 and drop the +cpu suffix.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0+cpu
+transformers==5.6.2

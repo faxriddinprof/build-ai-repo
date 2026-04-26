@@ -19,8 +19,8 @@ async def embed(text_input: str) -> list[float]:
     resp = await aembedding(
         model=settings.EMBEDDING_MODEL,
         input=[text_input],
-        api_base=settings.LITELLM_BASE_URL,
-        api_key=settings.LITELLM_API_KEY,
+        api_base=settings.LLM_BASE_URL,
+        api_key=settings.LLM_API_KEY,
         timeout=float(settings.LLM_TIMEOUT_SECONDS),
     )
     return resp.data[0]["embedding"]

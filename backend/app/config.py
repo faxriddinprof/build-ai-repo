@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_TTL_HOURS: int = 8
     REFRESH_TOKEN_TTL_DAYS: int = 30
 
-    LITELLM_BASE_URL: str = "http://litellm:4000"
-    LITELLM_API_KEY: str = "sk-bank-internal-key"
+    LLM_BASE_URL: str = "http://ollama:11434"
+    LLM_API_KEY: str = "sk-bank-internal-key"
     LLM_MODEL: str = "ollama/qwen3:8b-q4_K_M"
     EMBEDDING_MODEL: str = "ollama/bge-m3"
     LLM_MAX_TOKENS_SUGGESTION: int = 100

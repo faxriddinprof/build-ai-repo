@@ -5,20 +5,34 @@ End-to-end backend verification before frontend work. Run in order.
 ## Prerequisites
 
 - Docker running
-- `backend/.env` exists (`make env`)
-- Ollama models pulled (`make models-pull`)
+- `backend/.env` exists (copied from `.env.example`, `JWT_SECRET` set)
+- Ollama models pulled inside the `ollama` container:
+  ```bash
+  docker compose exec ollama ollama pull qwen3:8b-q4_K_M
+  docker compose exec ollama ollama pull bge-m3
+  ```
+- (Optional but recommended) Uzbek STT model converted:
+  ```bash
+  docker compose exec api python scripts/convert_stt_model.py
+  # then in backend/.env: WHISPER_MODEL=/app/models/uzbek_stt_v1_ct2
+  ```
 
 ---
 
 ## 1. Start the stack
 
 ```bash
-make up
+docker compose up -d --build
+```
+
+For GPU mode:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
 Watch logs in a second terminal:
 ```bash
-make logs
+docker compose logs -f api
 ```
 
 Wait for `startup.done` in the logs before continuing.
@@ -28,7 +42,7 @@ Wait for `startup.done` in the logs before continuing.
 ## 2. Health check
 
 ```bash
-make health
+curl http://localhost:8000/healthz
 ```
 
 Expected:
@@ -36,7 +50,7 @@ Expected:
 { "status": "ok", "db_ok": true, "ollama_ok": true, "models_loaded": true }
 ```
 
-If `ollama_ok: false` → run `make models-pull` and wait, then retry.
+If `ollama_ok: false` → check `docker compose exec ollama ollama list` and pull missing models.
 
 ---
 
@@ -49,20 +63,20 @@ make login   # prints full JSON
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@bank.uz","password":"changeme"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 ```
 
 **Wrong password → 401:**
 ```bash
 curl -s -X POST http://localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@bank.uz","password":"wrong"}' | python3 -m json.tool
+  -d '{"email":"admin@bank.uz","password":"wrong"}' | python -m json.tool
 ```
 
 **GET /me:**
 ```bash
 curl -s http://localhost:8000/api/auth/me \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 ```
 
 **Rate limit — 6th login attempt must return 429:**
@@ -111,29 +125,29 @@ curl -u wrong:wrong http://localhost:8000/admin -i | head -3
 ```bash
 # List all documents
 curl -s http://localhost:8000/api/admin/documents \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 
 # Save first doc ID
 DOC_ID=$(curl -s http://localhost:8000/api/admin/documents \
   -H "Authorization: Bearer $TOKEN" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else 'none')")
+  | python -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else 'none')")
 echo $DOC_ID
 
 # Get single document
 curl -s http://localhost:8000/api/admin/documents/$DOC_ID \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 
 # Upload TXT via API
 curl -s -X POST http://localhost:8000/api/admin/documents \
   -H "Authorization: Bearer $TOKEN" \
-  -F file=@/tmp/test_product.txt -F tag=product | python3 -m json.tool
+  -F file=@/tmp/test_product.txt -F tag=product | python -m json.tool
 # expect: status=202, body has id + status="indexing"
 
 # Reject unsupported extension → 400
 echo "test" > /tmp/test.exe
 curl -s -X POST http://localhost:8000/api/admin/documents \
   -H "Authorization: Bearer $TOKEN" \
-  -F file=@/tmp/test.exe | python3 -m json.tool
+  -F file=@/tmp/test.exe | python -m json.tool
 # expect: 400, detail contains "Only PDF or TXT"
 ```
 
@@ -147,16 +161,16 @@ CALL_ID=$(curl -s -X POST http://localhost:8000/api/calls \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"customer_name":"Alisher Umarov"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+  | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo $CALL_ID
 
 # List calls
 curl -s http://localhost:8000/api/calls \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 
 # Get single call
 curl -s http://localhost:8000/api/calls/$CALL_ID \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 ```
 
 ---
@@ -171,7 +185,7 @@ curl -s -X POST http://localhost:8000/api/transcribe-chunk \
   -H "Authorization: Bearer $TOKEN" \
   -F "call_id=$CALL_ID" \
   -F "audio=@/tmp/sample.wav" \
-  -F "lang_hint=uz" | python3 -m json.tool
+  -F "lang_hint=uz" | python -m json.tool
 ```
 
 Expected response shape:
@@ -189,7 +203,7 @@ Expected response shape:
 **End the call (triggers summary):**
 ```bash
 curl -s -X POST http://localhost:8000/api/calls/$CALL_ID/end \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 # expect: summary_text field populated
 ```
 
@@ -200,7 +214,7 @@ curl -s -X POST http://localhost:8000/api/calls/$CALL_ID/end \
 ```bash
 # List scenarios
 curl -s http://localhost:8000/api/demo/scenarios \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 
 # Play scenario 1 — streams NDJSON events
 curl -s http://localhost:8000/api/demo/play/1 \
@@ -216,7 +230,7 @@ This exercises the complete pipeline (STT → guardrail → RAG → LLM) using p
 ```bash
 # Reindex — re-embeds the file, rebuilds BM25 + pgvector
 curl -s -X POST http://localhost:8000/api/admin/documents/$DOC_ID/reindex \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 # expect: status switches back to "indexing" then "ready"
 
 # Delete — removes file, chunks (pgvector cascade), rebuilds BM25
@@ -226,7 +240,7 @@ curl -s -X DELETE http://localhost:8000/api/admin/documents/$DOC_ID \
 
 # Confirm gone
 curl -s http://localhost:8000/api/admin/documents/$DOC_ID \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+  -H "Authorization: Bearer $TOKEN" | python -m json.tool
 # expect: 404
 ```
 

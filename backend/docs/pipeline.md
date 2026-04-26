@@ -80,7 +80,7 @@ BANK_TOPICS (sample):
 ```
 Query text
     │
-    ├── bge-m3 embed (LiteLLM) → vector[1024]
+    ├── bge-m3 embed (Ollama via litellm SDK) → vector[1024]
     │     └── pgvector cosine search → top-RAG_DENSE_TOP_K hits
     │
     └── BM25s tokenize → disk index → top-RAG_SPARSE_TOP_K hits
