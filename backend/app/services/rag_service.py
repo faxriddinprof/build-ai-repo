@@ -36,26 +36,39 @@ async def _dense_search(
     vector = await embed(query)
     vec_str = "[" + ",".join(str(v) for v in vector) + "]"
 
-    sql = text(
+    # Build query without tag filter when tag_filter is None (asyncpg can't type NULL)
+    if tag_filter is None:
+        sql = text(
+            """
+            SELECT dc.id AS chunk_id, dc.content, dc.page_number, dc.document_id, d.filename,
+                   1 - (dc.embedding <=> CAST(:vec AS vector)) AS similarity
+              FROM document_chunks dc
+              JOIN documents d ON d.id = dc.document_id
+             ORDER BY dc.embedding <=> CAST(:vec AS vector)
+             LIMIT :top_k
         """
-        SELECT dc.id AS chunk_id, dc.content, dc.page_number, dc.document_id, d.filename,
-               1 - (dc.embedding <=> CAST(:vec AS vector)) AS similarity
-          FROM document_chunks dc
-          JOIN documents d ON d.id = dc.document_id
-         WHERE (:tag IS NULL OR d.tag = :tag)
-         ORDER BY dc.embedding <=> CAST(:vec AS vector)
-         LIMIT :top_k
-    """
-    )
+        )
+        params: dict = {"vec": vec_str, "top_k": top_k}
+    else:
+        sql = text(
+            """
+            SELECT dc.id AS chunk_id, dc.content, dc.page_number, dc.document_id, d.filename,
+                   1 - (dc.embedding <=> CAST(:vec AS vector)) AS similarity
+              FROM document_chunks dc
+              JOIN documents d ON d.id = dc.document_id
+             WHERE d.tag = :tag
+             ORDER BY dc.embedding <=> CAST(:vec AS vector)
+             LIMIT :top_k
+        """
+        )
+        params = {"vec": vec_str, "tag": tag_filter, "top_k": top_k}
 
     own_session = db is None
     if own_session:
         db = AsyncSessionLocal()
 
     try:
-        result = await db.execute(
-            sql, {"vec": vec_str, "tag": tag_filter, "top_k": top_k}
-        )
+        result = await db.execute(sql, params)
         rows = result.mappings().all()
         return [dict(r) for r in rows]
     finally:

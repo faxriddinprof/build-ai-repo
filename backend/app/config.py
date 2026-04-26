@@ -66,12 +66,7 @@ class Settings(BaseSettings):
     WEBRTC_AUDIO_CHUNK_SECONDS: float = 1.0
     FALLBACK_ENABLED: bool = True
 
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-    ]
+    CORS_ORIGINS: list[str] = ["*"]
 
     INTAKE_AUTO_TRIGGER_AT_SECONDS: int = 20
 

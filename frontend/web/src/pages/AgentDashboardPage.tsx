@@ -25,6 +25,7 @@ import { ComplianceChip } from '../components/call/ComplianceChip'
 import { PostCallSummary } from '../components/PostCallSummary'
 import { CustomerSelector } from '../components/call/CustomerSelector'
 import { SalesRecommendationPanel } from '../components/call/SalesRecommendationPanel'
+import { AITavsiyalarPanel } from '../components/call/AITavsiyalarPanel'
 
 // ---------------------------------------------------------------------------
 // We render BOTH hooks unconditionally (Rules of Hooks), but only use the
@@ -34,7 +35,7 @@ export default function AgentDashboardPage() {
   const demoEnabled = useDemoModeStore((s) => s.enabled)
   const logout = useAuthStore((s) => s.logout)
   const { theme, setTheme } = useThemeStore()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [, setSearchParams] = useSearchParams()
 
   // Always call both hooks unconditionally
   const pttSession = usePttSession()
@@ -358,15 +359,16 @@ export default function AgentDashboardPage() {
           </div>
         </section>
 
-        {/* Right: Suggestions (demo) / Sales Recommendations (live) */}
+        {/* Right: AI Tavsiyalar + Sales Recommendations */}
         <section style={suggestionPanelStyle}>
           <div style={{ ...panelHeaderStyle, background: 'var(--surface-2)' }}>
             <Icon name="sparkles" size={15} style={{ color: 'var(--ai-glow)' }} />
-            <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>
-              {demoEnabled ? 'AI Tavsiyalar' : 'Sotuv tavsiyalari'}
-            </span>
+            <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>AI Tavsiyalar</span>
             {demoEnabled && session.suggestions.length > 0 && (
               <Badge tone="ai" size="sm">{session.suggestions.length}</Badge>
+            )}
+            {!demoEnabled && session.aiAnswers.length > 0 && (
+              <Badge tone="ai" size="sm">{session.aiAnswers.filter(a => !a.streaming).length}</Badge>
             )}
           </div>
 
@@ -395,11 +397,18 @@ export default function AgentDashboardPage() {
                 ))
               )
             ) : (
-              /* Live PTT mode — only sales recommendations */
-              <SalesRecommendationPanel
-                clientId={selectedClientId}
-                disabled={pttStatus === 'idle'}
-              />
+              /* Live PTT mode — AI answers as suggestion cards + sales recommendations */
+              <>
+                <AITavsiyalarPanel
+                  aiAnswers={session.aiAnswers}
+                  isListening={pttStatus === 'recording' || pttStatus === 'sending'}
+                />
+                {selectedClientId && (
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginTop: 4 }}>
+                    <SalesRecommendationPanel clientId={selectedClientId} />
+                  </div>
+                )}
+              </>
             )}
           </div>
 

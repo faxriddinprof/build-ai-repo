@@ -144,7 +144,8 @@ async def get_agent_answer(
     rag_context: str,
     client_facts: str,
 ) -> AsyncIterator[str]:
-    """Stream a full Uzbek agent answer to the customer's question."""
+    """Return a full Uzbek agent answer as a single yielded string (non-streaming to avoid
+    litellm+Ollama thinking-token bug with qwen3 streaming mode)."""
     from app.prompts.system_uz import AGENT_ANSWER_PROMPT
 
     prompt = AGENT_ANSWER_PROMPT.format(
@@ -154,37 +155,27 @@ async def get_agent_answer(
     )
 
     for attempt in range(2):
-        tokens: list[str] = []
         try:
-            response = await acompletion(
-                model=settings.LLM_MODEL,
+            full = await chat(
                 messages=[
                     {"role": "system", "content": "/no_think"},
                     {"role": "user", "content": prompt},
                 ],
-                api_base=settings.LLM_BASE_URL,
-                api_key=settings.LLM_API_KEY,
-                stream=True,
-                temperature=0.4,
                 max_tokens=300,
+                temperature=0.4,
                 timeout=float(settings.LLM_TIMEOUT_SECONDS),
             )
-            async for chunk in response:
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    tokens.append(delta)
         except Exception as e:
             log.error("agent_answer.llm_error", error=str(e), attempt=attempt)
             if attempt == 0:
                 continue
             return
 
-        full = "".join(tokens)
-        if _looks_uzbek(full) or attempt == 1:
-            for t in tokens:
-                yield t
+        full = str(full).strip()
+        if full and (_looks_uzbek(full) or attempt == 1):
+            yield full
             return
-        log.warning("agent_answer.not_uzbek_retry")
+        log.warning("agent_answer.not_uzbek_retry", attempt=attempt, text=full[:80])
 
 
 async def warmup() -> None:
