@@ -6,6 +6,7 @@ interface ChatItem {
   kind: 'transcript' | 'ai_answer'
   id: string
   text: string
+  speaker?: string
   streaming?: boolean
   ts: number
 }
@@ -21,7 +22,7 @@ export function ChatThread({ transcripts, aiAnswers, isListening }: ChatThreadPr
 
   // Merge and sort by timestamp
   const items: ChatItem[] = [
-    ...transcripts.map((t) => ({ kind: 'transcript' as const, id: t.id, text: t.text, ts: t.ts })),
+    ...transcripts.map((t) => ({ kind: 'transcript' as const, id: t.id, text: t.text, speaker: t.speaker, ts: t.ts })),
     ...aiAnswers.map((a) => ({ kind: 'ai_answer' as const, id: a.id, text: a.text, streaming: a.streaming, ts: a.ts })),
   ].sort((a, b) => a.ts - b.ts)
 
@@ -62,13 +63,17 @@ export function ChatThread({ transcripts, aiAnswers, isListening }: ChatThreadPr
         padding: '16px 16px 8px',
       }}
     >
-      {items.map((item) =>
-        item.kind === 'transcript' ? (
-          <MijozBubble key={item.id} text={item.text} />
-        ) : (
+      {items.map((item) => {
+        const isOperator =
+          item.kind === 'ai_answer' ||
+          item.speaker === 'Operator' ||
+          item.speaker === 'agent'
+        return isOperator ? (
           <AIBubble key={item.id} text={item.text} streaming={item.streaming} />
+        ) : (
+          <MijozBubble key={item.id} text={item.text} />
         )
-      )}
+      })}
 
       {/* Listening indicator — shown while active but no new transcript yet */}
       {isListening && (

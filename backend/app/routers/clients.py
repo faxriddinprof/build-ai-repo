@@ -19,13 +19,6 @@ from app.prompts.sales_uz import SALES_RECOMMENDATION_PROMPT
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 log = structlog.get_logger()
 
-# Fixed UUIDs for the 3 demo clients — must match scripts/seed_clients.py
-_DEMO_IDS = [
-    "00000000-0001-0001-0001-000000000001",  # Jasur Toshmatov
-    "00000000-0002-0002-0002-000000000002",  # Nilufar Xasanova
-    "00000000-0003-0003-0003-000000000003",  # Bobur Rahimov
-]
-
 
 class DemoClient(BaseModel):
     client_id: str
@@ -53,46 +46,56 @@ async def get_demo_clients(
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_role("agent", "admin")),
 ):
-    """Return the 3 seeded demo clients for the frontend selector."""
+    """Return all clients from the DB for the frontend selector (up to 10)."""
+    from app.models.banking import Deposit, Loan, RiskProfile
+
+    res = await db.execute(
+        select(Client).where(Client.is_active == True).order_by(Client.first_name).limit(10)
+    )
+    all_clients = res.scalars().all()
+
     clients_out: list[DemoClient] = []
-
-    for cid in _DEMO_IDS:
-        # Load the raw Client row for full name
-        res = await db.execute(select(Client).where(Client.client_id == cid))
-        client = res.scalar_one_or_none()
-        if client is None:
-            continue  # not yet seeded — skip silently
-
-        # Load profile for risk/loan/deposit flags
-        profile = await client_profile_service.get_profile(db, cid)
-        if profile is None:
-            continue
-
-        # Load primary contact for region
-        c_res = await db.execute(
-            select(Contact)
-            .where(Contact.client_id == cid, Contact.is_primary_phone == True)
-            .limit(1)
-        )
-        contact = c_res.scalar_one_or_none()
-        if contact is None:
-            c_res2 = await db.execute(
+    for client in all_clients:
+        cid = client.client_id
+        try:
+            # Region from any contact
+            c_res = await db.execute(
                 select(Contact).where(Contact.client_id == cid).limit(1)
             )
-            contact = c_res2.scalar_one_or_none()
+            contact = c_res.scalar_one_or_none()
+            region = (contact.region if contact else None) or "Noma'lum"
 
-        region = (contact.region if contact else None) or "Noma'lum"
-
-        clients_out.append(
-            DemoClient(
-                client_id=cid,
-                display_name=f"{client.first_name} {client.last_name}",
-                region=region,
-                risk_category=profile.risk_category,
-                has_loan=profile.has_active_loan,
-                has_deposit=profile.has_deposit,
+            # Risk category
+            rp_res = await db.execute(
+                select(RiskProfile).where(RiskProfile.client_id == cid).limit(1)
             )
-        )
+            risk = rp_res.scalar_one_or_none()
+            risk_category = (risk.risk_category if risk else None) or "medium"
+
+            # Has active loan
+            loan_res = await db.execute(
+                select(Loan).where(Loan.client_id == cid, Loan.status == "active").limit(1)
+            )
+            has_loan = loan_res.scalar_one_or_none() is not None
+
+            # Has deposit
+            dep_res = await db.execute(
+                select(Deposit).where(Deposit.client_id == cid).limit(1)
+            )
+            has_deposit = dep_res.scalar_one_or_none() is not None
+
+            clients_out.append(
+                DemoClient(
+                    client_id=cid,
+                    display_name=f"{client.first_name} {client.last_name}",
+                    region=region,
+                    risk_category=risk_category,
+                    has_loan=has_loan,
+                    has_deposit=has_deposit,
+                )
+            )
+        except Exception as e:
+            log.warning("demo_clients.skip", client_id=cid, error=str(e))
 
     return {"clients": [c.model_dump() for c in clients_out]}
 
