@@ -311,7 +311,12 @@ export function useCallSession(): CallSessionApi {
 
         pc.onicecandidate = (e) => {
           if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'ice-candidate', candidate: e.candidate.toJSON() }))
+            wsRef.current.send(JSON.stringify({
+              type: 'ice-candidate',
+              candidate: e.candidate.candidate,
+              sdpMid: e.candidate.sdpMid,
+              sdpMLineIndex: e.candidate.sdpMLineIndex,
+            }))
           }
         }
 
