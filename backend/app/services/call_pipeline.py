@@ -164,7 +164,7 @@ async def process_audio_chunk(
     speaker = speaker_tracker.update(audio)
 
     try:
-        result = await stt_service.transcribe_chunk(pcm_bytes, lang_hint=lang_hint)
+        result = await stt_service.transcribe_chunk(pcm_bytes, language_hint=lang_hint)
     except Exception as e:
         log.error("stt.error", error=str(e), call_id=call_id)
         return [_make_event("error", call_id=call_id, code="STT_FAIL", message=str(e))]
