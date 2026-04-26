@@ -117,8 +117,7 @@ Call ends → auto-summary generated → saved to DB
 | Frontend | React + TypeScript + Tailwind CSS |
 | Backend | FastAPI (Python) |
 | STT | faster-whisper (large-v3, GPU) |
-| LLM | Qwen3-8B via Ollama |
-| LLM Gateway | LiteLLM |
+| LLM | Qwen3-8B via Ollama (called through `litellm` Python SDK; no proxy) |
 | Vector DB | PostgreSQL + pgvector (embeddings) |
 | Embeddings | nomic-embed-text via Ollama (local) |
 | PDF Parsing | PyMuPDF (fitz) |
@@ -148,8 +147,7 @@ Total target:           ≤ 1.5s
 ```
 docker-compose.yml
 ├── ollama          → Qwen3-8B + nomic-embed-text model server
-├── litellm         → OpenAI-compatible LLM proxy
-├── api             → FastAPI backend (STT, LLM, WebSocket, REST, ingest)
+├── api             → FastAPI backend (STT, LLM via litellm SDK, WebSocket, REST, ingest)
 ├── frontend        → React app (Vite) — agent + admin views
 └── postgres        → pgvector: chunks + embeddings + call logs
 ```
@@ -170,7 +168,7 @@ docker-compose.yml
 │   │   └── admin.py              # REST: PDF upload, doc management (admin only)
 │   ├── services/
 │   │   ├── stt_service.py        # faster-whisper wrapper
-│   │   ├── llm_service.py        # LiteLLM async calls
+│   │   ├── llm_service.py        # litellm SDK async calls (direct to Ollama)
 │   │   ├── guardrail_service.py  # Topic filter + language enforcement (pre-LLM)
 │   │   ├── sentiment.py          # Keyword + LLM sentiment
 │   │   ├── compliance.py         # Script phrase detection
@@ -220,7 +218,6 @@ docker-compose.yml
 │   └── vite.config.ts
 │
 ├── docker-compose.yml
-├── litellm_config.yaml
 ├── .env.example
 └── README.md
 ```
