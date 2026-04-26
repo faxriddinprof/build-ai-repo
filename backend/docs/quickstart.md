@@ -1,147 +1,215 @@
-# Quick Start
+# Quick Start (CPU mode)
 
-AI Sales Copilot — on-premise backend for bank call center agents in Uzbekistan.
-Runs entirely locally. No external API calls.
+A step-by-step setup guide for the AI Sales Copilot backend. Follow it top-to-bottom — no skipping, no improvising. By the end, you will have a working API on `http://localhost:8000` with login, RAG ingestion, and the LLM all running locally.
 
-This guide gets you from a fresh clone to a fully working `/healthz` in **CPU mode**. For GPU acceleration on a Windows RTX 5070 Ti, see [`gpu_setup.md`](gpu_setup.md).
+> **CPU only.** This guide uses your laptop's CPU. It works but the LLM is slow (~10–15 s per reply). For a fast setup on a Windows RTX GPU, use [`gpu_setup.md`](gpu_setup.md) instead.
 
-## Prerequisites
+---
 
-- Docker + Docker Compose (Docker Desktop on Windows is fine)
-- ~12 GB free disk for models
-- 16 GB RAM minimum
-- Internet access for the first model pull (~7 GB total)
+## What you are setting up
 
-## 1. Configure environment
+Three Docker containers running together:
+
+| Container | What it does | Port |
+|-----------|--------------|------|
+| `postgres` | Database + vector storage (pgvector) | 5432 |
+| `ollama` | Runs the LLM (Qwen3-8B) and the embedding model (bge-m3) | 11434 |
+| `api` | FastAPI backend — your app | 8000 |
+
+> **No "litellm" container.** The API uses the `litellm` Python SDK (a library) to talk to `ollama` directly. There is no fourth proxy container. Three services total.
+
+---
+
+## Before you start
+
+Make sure you have:
+
+- [ ] **Docker Desktop** installed and running. Open it once before continuing.
+- [ ] **~12 GB free disk space** (the AI models are big).
+- [ ] **16 GB RAM** minimum.
+- [ ] **Internet** for the first model download (~7 GB, one time).
+- [ ] **A terminal** — Bash (Linux/Mac/WSL) or PowerShell (Windows). Commands below assume Bash; on PowerShell replace `curl` with `curl.exe`.
+
+Test Docker works:
 
 ```bash
+docker --version
+docker compose version
+```
+
+If either command fails, fix Docker first. Don't continue.
+
+---
+
+## Step 1 — Get the code and create your `.env` file
+
+```bash
+git clone https://github.com/faxriddinprof/build-with-ai-hackathon.git
+cd build-with-ai-hackathon
 cp backend/.env.example backend/.env
 ```
 
-Edit `backend/.env` — only one field is strictly required:
+Now open `backend/.env` in any editor. **Only one line is mandatory** — everything else has a working default:
 
 ```env
-JWT_SECRET=<run: openssl rand -hex 32>
+JWT_SECRET=<paste a random 64-character string here>
 ```
 
-Defaults that are already correct for Docker:
+Generate one:
 
-```env
-LLM_BASE_URL=http://ollama:11434                # SDK calls Ollama directly
-LLM_MODEL=ollama/qwen3:8b-q4_K_M
-EMBEDDING_MODEL=ollama/bge-m3
-EMBEDDING_DIM=1024
-WHISPER_MODEL=tiny                              # Step 4 will switch this
-WHISPER_DEVICE=cpu
-WHISPER_COMPUTE_TYPE=int8
-ADMIN_EMAIL=admin@bank.uz
-ADMIN_PASSWORD=changeme
+```bash
+openssl rand -hex 32
 ```
 
-## 2. Bring up the stack
+Copy the output, paste it after `JWT_SECRET=`. Save the file.
+
+> **Don't change anything else yet.** The defaults (`LLM_BASE_URL=http://ollama:11434`, `WHISPER_MODEL=tiny`, etc.) work out of the box for CPU mode.
+
+---
+
+## Step 2 — Start the three containers
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts three services:
+This builds the `api` image and starts all three services. First build takes ~5 minutes.
 
-| Service | Port | Notes |
-|---------|------|-------|
-| `postgres` | 5432 | pgvector/pgvector:pg16 |
-| `ollama` | 11434 | LLM + embedding inference |
-| `api` | 8000 | FastAPI app |
-
-> **About LiteLLM:** the API uses the `litellm` Python SDK in code (`from litellm import acompletion`) but talks to Ollama **directly** at `http://ollama:11434/api/{generate,embed}`. There is **no LiteLLM proxy container** in this project — the SDK is enough.
-
-Check status:
+Verify everything is running:
 
 ```bash
 docker compose ps
-# all four should be "running" / "healthy"
 ```
 
-## 3. Pull Ollama models (~6 GB, once)
+You should see `postgres`, `ollama`, and `api` all with status `running` or `healthy`. If any say `restarting` or `exited`, check the logs:
 
-The Ollama container starts empty — it needs the LLM and embedding model pulled into its volume.
+```bash
+docker compose logs api
+docker compose logs ollama
+```
+
+---
+
+## Step 3 — Download the AI models into Ollama (~6 GB, one time)
+
+The `ollama` container is empty by default. You need to download the LLM and the embedding model into it:
 
 ```bash
 docker compose exec ollama ollama pull qwen3:8b-q4_K_M
 docker compose exec ollama ollama pull bge-m3
 ```
 
-These are stored in `static/media/models/` (bind-mounted from the host) and survive rebuilds.
+Each pull takes 2–10 minutes depending on your internet. The files are saved to `static/media/models/` on your host, so they survive container rebuilds.
 
-Verify:
+Verify both models are loaded:
 
 ```bash
 curl http://localhost:11434/api/tags
-# → {"models":[{"name":"qwen3:8b-q4_K_M",...},{"name":"bge-m3",...}]}
 ```
 
-## 4. Convert the Uzbek STT model (~970 MB, once)
+You should see both `qwen3:8b-q4_K_M` and `bge-m3` in the JSON response. If not, the pull failed — re-run the commands above.
 
-faster-whisper requires the `Kotib/uzbek_stt_v1` HuggingFace checkpoint to be re-packaged in CTranslate2 format. The conversion script is baked into the API image and uses `ct2-transformers-converter` (from the `transformers` + `torch` packages already in `requirements.txt`).
+---
+
+## Step 4 — Pick a Speech-to-Text (STT) model
+
+You have two options. **Pick one, do not do both.**
+
+### Option A — Quick start with the small `tiny` model (recommended for first-time setup)
+
+Nothing to do. The default in `backend/.env` is already `WHISPER_MODEL=tiny`. faster-whisper will download it (~75 MB) automatically the first time it runs. Skip to **Step 5**.
+
+> Caveat: `tiny` is English-biased and bad at Uzbek. Fine for verifying the setup, not for a real demo.
+
+### Option B — The Uzbek-tuned model (~970 MB, takes 5–15 min)
+
+If you want actual Uzbek transcription, run this conversion script:
 
 ```bash
 docker compose exec api python scripts/convert_stt_model.py
 ```
 
-Output is written to `/app/models/uzbek_stt_v1_ct2/` on the `whisper_models` named volume — it persists across container rebuilds. Conversion takes 5–15 min on CPU (downloads ~970 MB from HF, then quantizes to int8 ~770 MB).
+This downloads `Kotib/uzbek_stt_v1` from HuggingFace and converts it to the format faster-whisper needs. Output goes to `/app/models/uzbek_stt_v1_ct2/` inside a Docker volume (persists across rebuilds).
 
-Then point `WHISPER_MODEL` at the converted directory:
+After it finishes, edit `backend/.env`:
 
 ```env
-# backend/.env
 WHISPER_MODEL=/app/models/uzbek_stt_v1_ct2
 ```
 
-Recreate the API container so the new env var is picked up:
+Apply the change by recreating the api container:
 
 ```bash
 docker compose up -d api
 ```
 
-> If you want to skip Uzbek STT for now and use the generic `tiny` model (English-biased, ~75 MB), leave `WHISPER_MODEL=tiny` and skip this step. faster-whisper will download `tiny` from HF on first use.
+---
 
-## 5. Run migrations + seed admin
+## Step 5 — Create the admin user
 
-The API auto-runs `alembic upgrade head` at startup, so migrations are usually already applied. To seed the admin user:
+The database tables are already created — the api container runs `alembic upgrade head` automatically at startup. You just need to create the first admin login:
 
 ```bash
 docker compose exec api python scripts/seed_admin.py
 ```
 
-Default credentials (override in `backend/.env`):
+Default credentials (these come from `backend/.env`):
 
 ```
-ADMIN_EMAIL=admin@bank.uz
-ADMIN_PASSWORD=changeme
+email:    admin@bank.uz
+password: changeme
 ```
 
-## 6. Verify
+> **Change `ADMIN_PASSWORD` in `backend/.env` before showing this to anyone.** Default passwords are not safe.
+
+---
+
+## Step 6 — Verify the API is healthy
 
 ```bash
 curl http://localhost:8000/healthz
-# → {"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
+```
 
-# Login
+Expected reply:
+
+```json
+{"status":"ok","db_ok":true,"ollama_ok":true,"models_loaded":true}
+```
+
+All four must be `true` / `"ok"`. If any are `false`, see the **Troubleshooting** section at the bottom.
+
+Now log in to get a JWT token:
+
+```bash
 curl -X POST http://localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@bank.uz","password":"changeme"}'
-# → {"access_token":"...","refresh_token":"...","role":"admin"}
 ```
 
-API docs live at `http://localhost:8000/docs` (Swagger UI).
+You should get back `{"access_token":"...", "refresh_token":"...", "role":"admin"}`. Save the `access_token` — you will need it for the next steps.
 
-## 7. Test the LLM (independent of the call pipeline)
+You can also browse the full API at `http://localhost:8000/docs` (Swagger UI).
 
-**Direct Ollama** (proves the model is loaded):
+---
+
+## Step 7 — Test the LLM end-to-end
+
+Two quick tests to confirm Qwen3 actually answers.
+
+**Test A — Talk to Ollama directly** (proves the model is loaded):
+
 ```bash
-curl -s http://localhost:11434/api/generate -d '{"model":"qwen3:8b-q4_K_M","prompt":"Salom!","stream":false}'
+curl -s http://localhost:11434/api/generate -d '{
+  "model":"qwen3:8b-q4_K_M",
+  "prompt":"Salom!",
+  "stream":false
+}'
 ```
 
-**Through the app's SDK code path:**
+Expect a JSON reply with a `"response"` field containing Uzbek text. On CPU this takes ~10–15 s.
+
+**Test B — Through your app's code path** (proves the SDK + config are wired correctly):
+
 ```bash
 docker compose exec -T api python -c "
 import asyncio
@@ -153,88 +221,134 @@ print(asyncio.run(chat(
 "
 ```
 
-> The system prompt now ends with `/no_think` to disable Qwen3's reasoning tokens — necessary because the default `LLM_MAX_TOKENS_SUGGESTION=100` is otherwise consumed entirely by `<think>...</think>` and the user sees an empty reply.
+You should see Uzbek text printed.
 
-## 8. PDF / TXT ingestion (RAG)
+> **If the reply is empty:** Qwen3's reasoning tokens (`<think>...</think>`) ate the entire `max_tokens` budget. The system prompts in this repo end with `/no_think` to prevent that — if you wrote your own custom prompt, add `/no_think` to it too.
+
+---
+
+## Step 8 — Upload a PDF for RAG
+
+Save your access token to a shell variable so the next commands are short:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@bank.uz","password":"changeme"}' \
   | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+```
 
+Upload any PDF (replace `sample.pdf` with a real file):
+
+```bash
 curl -s -X POST http://localhost:8000/api/admin/documents \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@sample.pdf" -F "tag=product"
+  -F "file=@sample.pdf" \
+  -F "tag=product"
+```
 
-# Poll status (indexing → ready)
+Check ingestion status (it should go from `indexing` → `ready`):
+
+```bash
 curl http://localhost:8000/api/admin/documents -H "Authorization: Bearer $TOKEN"
 ```
 
-After ingestion, BM25 auto-rebuilds. Subsequent suggestions use hybrid retrieval (dense + sparse → RRF).
+> **CPU is slow at embeddings.** Each chunk takes 6–15 s on CPU. A 10-page PDF can take 1–2 minutes. On GPU it's 50–200 ms per chunk.
 
-> On CPU, each chunk takes 6–15 s to embed (bge-m3 has 568M params and chunks are processed serially). On GPU it's 50–200 ms per chunk.
+After the document hits `ready`, the BM25 sparse index rebuilds automatically. Future suggestions will combine dense (pgvector) + sparse (BM25) retrieval.
 
-## 9. Browser admin panel
+---
 
-Open `http://localhost:8000/admin` — Basic Auth with the seeded admin credentials. Upload PDFs/TXTs, monitor indexing, delete documents.
+## Step 9 — Open the admin panel (browser)
 
-## 10. Real-time audio test (REST fallback)
+Go to `http://localhost:8000/admin` in your browser. It asks for Basic Auth — use `admin@bank.uz` / `changeme` (or whatever you set in `.env`). From here you can upload more PDFs, see indexing status, and delete documents without touching the terminal.
+
+---
+
+## Step 10 — Send a real audio chunk (REST fallback path)
+
+Audio normally streams over WebRTC, but there's a REST fallback for testing. First create a call (must be done as an `agent`, not `admin`):
+
+Create an agent user via the admin API:
+
+```bash
+curl -X POST http://localhost:8000/api/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"agent1@bank.uz","password":"agent123","role":"agent"}'
+```
+
+Log in as the agent and grab their token (`AGENT_TOKEN`). Then start a call and post an audio chunk:
 
 ```bash
 CALL_ID=$(curl -s -X POST http://localhost:8000/api/calls \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   -H 'Content-Type: application/json' -d '{}' \
   | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 curl -s -X POST http://localhost:8000/api/transcribe-chunk \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   -F "audio=@chunk.webm" \
   -F "call_id=$CALL_ID" \
   -F "lang_hint=uz"
-# → {"call_id":"...","events":[{"type":"transcript",...},{"type":"suggestion",...}]}
 ```
 
-Calls require an `agent` role. Create one via `POST /api/admin/users` with `{"role":"agent"}`.
+You should get back a JSON object with an `events` array containing transcripts and (if the audio is bank-related) a suggestion.
 
-## 11. Tests
+---
+
+## Step 11 — Run the test suite
 
 ```bash
 make test
-# 68+ passing (postgres on :5432 required; tests use a separate sales_test DB)
 ```
 
-## API surface
+68+ tests should pass. Tests use a separate `sales_test` database and don't touch your seeded data.
+
+---
+
+## Common API endpoints (cheat sheet)
 
 | Endpoint | Purpose |
 |----------|---------|
 | `POST /api/auth/login` | Get JWT tokens |
-| `GET  /api/auth/me` | Current user |
-| `POST /api/admin/users` | Create user (admin) |
-| `POST /api/admin/documents` | Upload PDF/TXT for RAG (admin) |
+| `GET  /api/auth/me` | Current user info |
+| `POST /api/admin/users` | Create a user (admin role required) |
+| `POST /api/admin/documents` | Upload PDF/TXT for RAG |
 | `GET  /api/calls` | Call history |
-| `POST /api/calls` | Start call (agent) |
+| `POST /api/calls` | Start a call (agent role required) |
 | `POST /api/transcribe-chunk` | REST fallback audio upload |
 | `WS   /ws/signaling?token=` | WebRTC SDP/ICE exchange |
-| `WS   /ws/supervisor?token=` | Supervisor live feed |
+| `WS   /ws/supervisor?token=` | Live feed for supervisors |
 | `GET  /healthz` | Readiness probe |
-| `GET  /admin` | Admin panel (Basic Auth) |
+| `GET  /admin` | Browser admin panel (Basic Auth) |
+
+---
 
 ## Troubleshooting
 
+Read the symptom in the left column. Don't skip steps.
+
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `ollama_ok: false` in `/healthz` | Models not pulled, or Ollama not healthy | `docker compose exec ollama ollama list` — both models must appear |
-| `startup.stt_load_failed` | `WHISPER_MODEL` path doesn't exist on the volume | Re-run conversion (Step 4); ensure `whisper_models` volume is mounted |
-| `startup.llm_warmup_failed` | Ollama still loading the model | Wait 30 s, restart api |
-| `startup.embed_warmup_failed` | Same as above; auto-retries 5× | Wait or restart api |
-| Empty LLM reply | Qwen3 thinking tokens consumed all of `max_tokens` | Already mitigated via `/no_think` in system prompt; if you wrote a custom prompt, append `/no_think` |
-| 429 on login | Per-IP rate limit (5/min) | Wait 60 s |
-| Slow embeddings (>5 s/chunk) | Running on CPU | Switch to GPU mode — see `gpu_setup.md` |
+| `docker compose ps` shows `api` as `restarting` | Bad `.env` (missing `JWT_SECRET`, broken line endings) | Re-check `backend/.env`. On Windows use VS Code, not Notepad. |
+| `/healthz` returns `ollama_ok: false` | Models not pulled, or Ollama still warming up | `docker compose exec ollama ollama list` — both `qwen3:8b-q4_K_M` and `bge-m3` must appear. If empty, redo Step 3. |
+| `/healthz` returns `models_loaded: false` | First boot still warming models | Wait 30–60 s on CPU and retry. |
+| `startup.stt_load_failed` in api logs | `WHISPER_MODEL` path doesn't exist | Either set `WHISPER_MODEL=tiny` (Step 4 Option A) or re-run the conversion script (Option B). |
+| `startup.llm_warmup_failed` | Ollama isn't ready yet | Wait 30 s, then `docker compose restart api`. |
+| Empty LLM reply when calling `chat()` | Qwen3 reasoning tokens consumed `max_tokens` | The repo's prompts already include `/no_think`. If you wrote a custom prompt, append `/no_think` to it. |
+| `429 Too Many Requests` on login | Per-IP rate limit (5 logins per minute) | Wait 60 s. |
+| Embeddings take 5+ s per chunk | Normal on CPU (bge-m3 is 568M params) | Switch to GPU mode — see [`gpu_setup.md`](gpu_setup.md). |
+| `litellm.APIConnectionError: Not Found` | Something pointed `LLM_BASE_URL` at a non-Ollama URL | Make sure `.env` has `LLM_BASE_URL=http://ollama:11434` (no trailing slash, no `/v1`). |
 
-## Next steps
+If something else breaks: `docker compose logs api` is the first place to look. The api logs structured JSON — search for `"event":"startup..."` lines.
 
-- [`manual_test_flow.md`](manual_test_flow.md) — full end-to-end verification (10 steps)
-- [`gpu_setup.md`](gpu_setup.md) — switch to GPU for production-grade latency
-- [`SIGNALING.md`](SIGNALING.md) — WebRTC frontend integration
-- [`architecture.md`](architecture.md) — internal services + data flow
+---
+
+## Where to go next
+
+- [`manual_test_flow.md`](manual_test_flow.md) — full 10-step end-to-end verification, including login, upload, and live call.
+- [`gpu_setup.md`](gpu_setup.md) — switch to GPU for production-grade latency (≤ 1.5 s suggestions).
+- [`SIGNALING.md`](SIGNALING.md) — how the frontend connects via WebRTC.
+- [`architecture.md`](architecture.md) — internal services, the RAG pipeline, and data flow.
+- [`qwen_litellm_setup.md`](qwen_litellm_setup.md) — deep dive on the LLM SDK setup, why there's no proxy, and how to swap models.
