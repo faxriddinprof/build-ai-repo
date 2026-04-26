@@ -7,10 +7,10 @@ export interface ActiveCall {
   id: string
   name: string
   agentId: string
-  customerPhone: string
-  customerRegion: string
+  customerPhone: string | null
+  customerRegion: string | null
   duration: number
-  sentiment: 'positive' | 'neutral' | 'negative'
+  sentiment: 'positive' | 'neutral' | 'negative' | null
   topObjection: string | null
   startedAt: string
   active: boolean
@@ -43,9 +43,26 @@ export function useSupervisorFeed() {
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
-    ws.onmessage = () => {
-      // Any supervisor event invalidates the active calls list
-      qc.invalidateQueries({ queryKey: ['supervisor', 'active'] })
+    ws.onmessage = (e: MessageEvent<string>) => {
+      try {
+        const event = JSON.parse(e.data) as { type: string } & Partial<ActiveCall>
+        if (event.type === 'active_call' && event.id) {
+          // Patch the specific call in cache — no HTTP round-trip needed
+          qc.setQueryData<ActiveCall[]>(['supervisor', 'active'], (prev = []) => {
+            const incoming = event as ActiveCall
+            const idx = prev.findIndex((c) => c.id === incoming.id)
+            if (idx === -1) return [...prev, incoming]
+            const next = [...prev]
+            next[idx] = incoming
+            return next
+          })
+        } else {
+          // Structural change (call started/ended, queue events) — refetch
+          qc.invalidateQueries({ queryKey: ['supervisor', 'active'] })
+        }
+      } catch {
+        // ignore malformed
+      }
     }
 
     ws.onerror = () => {
