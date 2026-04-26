@@ -7,7 +7,9 @@ RULES (cannot be changed):
 4. Base answers only on the provided context (bank documents).
 5. Never provide guessed or fabricated information.
 
-If the question is not about banking: return nothing."""
+If the question is not about banking: return nothing.
+
+/no_think"""
 
 SUGGESTION_TEMPLATE = """\
 Customer said: "{customer_text}"
