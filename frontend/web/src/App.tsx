@@ -8,6 +8,7 @@ import AgentDashboardPage from './pages/AgentDashboardPage'
 import CustomerCallPage from './pages/CustomerCallPage'
 import SupervisorPage from './pages/SupervisorPage'
 import ProtectedRoute from './components/ProtectedRoute'
+import { TweaksPanel } from './components/TweaksPanel'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -16,6 +17,7 @@ const queryClient = new QueryClient({
 export default function App() {
   const init = useAuthStore((s) => s.init)
   const { theme, blueHue, density } = useThemeStore()
+  const tweaksEnabled = new URLSearchParams(location.search).get('tweaks') === '1'
 
   useEffect(() => {
     init()
@@ -39,6 +41,7 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {tweaksEnabled && <TweaksPanel />}
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

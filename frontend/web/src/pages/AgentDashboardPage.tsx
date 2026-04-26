@@ -5,6 +5,7 @@ import { useScriptedSession } from '../hooks/useScriptedSession'
 import { useQueue } from '../hooks/useQueue'
 import { useDemoModeStore } from '../store/demoModeStore'
 import { useAuthStore } from '../store/authStore'
+import { useThemeStore } from '../store/themeStore'
 import { DEMO_TIMELINE } from '../data/demoTimeline'
 import { fmtTime, maskPhone } from '../lib/format'
 
@@ -32,6 +33,7 @@ import { PostCallSummary } from '../components/PostCallSummary'
 export default function AgentDashboardPage() {
   const demoEnabled = useDemoModeStore((s) => s.enabled)
   const logout = useAuthStore((s) => s.logout)
+  const { theme, setTheme } = useThemeStore()
 
   const realSession = useCallSession()
   const demoSession = useScriptedSession()
@@ -217,6 +219,24 @@ export default function AgentDashboardPage() {
         <SentimentBadge sentiment={session.sentiment} />
 
         <div style={{ flex: 1 }} />
+
+        {/* Theme toggle */}
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          title={theme === 'dark' ? "Yorug' rejim" : "Qorong'i rejim"}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            padding: 6,
+            borderRadius: 'var(--r-sm)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+        </button>
 
         {/* Demo toggle */}
         <DemoModeToggle />
