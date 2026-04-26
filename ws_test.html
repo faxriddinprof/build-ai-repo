@@ -1133,7 +1133,7 @@ async function doDemoPlay() {
   if (!cid) { logErr('No call_id'); return; }
   try {
     const r = await authedFetch('/api/demo/play', {
-      method:'POST', body: JSON.stringify({call_id: cid, scenario_id: parseInt(sid)||sid}),
+      method:'POST', body: JSON.stringify({call_id: cid, scenario_id: sid}),
     });
     const j = await r.json();
     if (!r.ok) { logErr(`Demo play ${r.status}: ${JSON.stringify(j)}`); return; }
