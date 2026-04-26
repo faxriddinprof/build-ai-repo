@@ -6,6 +6,7 @@ import { useThemeStore } from './store/themeStore'
 import LoginPage from './pages/LoginPage'
 import AgentDashboardPage from './pages/AgentDashboardPage'
 import CustomerCallPage from './pages/CustomerCallPage'
+import SupervisorPage from './pages/SupervisorPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 const queryClient = new QueryClient({
@@ -54,7 +55,7 @@ export default function App() {
             path="/supervisor"
             element={
               <ProtectedRoute roles={['supervisor', 'admin']}>
-                <div style={{ color: 'var(--text-primary)', padding: 32 }}>Supervisor — coming soon</div>
+                <SupervisorPage />
               </ProtectedRoute>
             }
           />
