@@ -158,12 +158,16 @@ async def get_agent_answer(
         try:
             response = await acompletion(
                 model=settings.LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": "/no_think"},
+                    {"role": "user", "content": prompt},
+                ],
                 api_base=settings.LLM_BASE_URL,
                 api_key=settings.LLM_API_KEY,
                 stream=True,
                 temperature=0.4,
                 max_tokens=300,
+                timeout=float(settings.LLM_TIMEOUT_SECONDS),
             )
             async for chunk in response:
                 delta = chunk.choices[0].delta.content or ""

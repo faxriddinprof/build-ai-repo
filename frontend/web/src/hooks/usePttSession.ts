@@ -42,7 +42,7 @@ export function usePttSession() {
       case 'transcript': {
         const entry: TranscriptEntry = {
           id: crypto.randomUUID(),
-          speaker: (ev.speaker as TranscriptEntry['speaker']) ?? 'customer',
+          speaker: 'customer', // self-talk: mic is always the customer
           text: String(ev.text ?? ''),
           ts: callTimeRef.current,
         }

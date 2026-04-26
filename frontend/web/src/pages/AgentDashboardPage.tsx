@@ -50,8 +50,6 @@ export default function AgentDashboardPage() {
   // Copy toast
   const [copyToast, setCopyToast] = useState(false)
   const copyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [aiEnabled, setAiEnabled] = useState(true)
-
   // Clear call_id param whenever session ends for any reason
   useEffect(() => {
     if (!demoEnabled && session.status === 'ended') {
@@ -276,6 +274,23 @@ export default function AgentDashboardPage() {
             />
           </div>
 
+          {/* Customer selector — live mode only, above start button */}
+          {!demoEnabled && (
+            <div style={{
+              padding: '10px 16px',
+              borderTop: '1px solid var(--border-subtle)',
+              background: 'var(--surface-1)',
+              flexShrink: 0,
+            }}>
+              <CustomerSelector
+                clients={clients}
+                selectedId={selectedClientId}
+                onSelect={setSelectedClientId}
+                disabled={pttStatus !== 'idle' && pttStatus !== 'ended'}
+              />
+            </div>
+          )}
+
           {/* PTT / Start-Stop controls */}
           <div
             style={{
@@ -343,52 +358,16 @@ export default function AgentDashboardPage() {
           </div>
         </section>
 
-        {/* Right: Suggestions + Customer Selector + Sales Recommendations */}
+        {/* Right: Suggestions (demo) / Sales Recommendations (live) */}
         <section style={suggestionPanelStyle}>
           <div style={{ ...panelHeaderStyle, background: 'var(--surface-2)' }}>
-            <Icon name="sparkles" size={15} style={{ color: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)' }} />
-            <span style={{ fontWeight: 600, fontSize: 14, flex: 1, color: aiEnabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-              AI Tavsiyalar
+            <Icon name="sparkles" size={15} style={{ color: 'var(--ai-glow)' }} />
+            <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>
+              {demoEnabled ? 'AI Tavsiyalar' : 'Sotuv tavsiyalari'}
             </span>
-            {aiEnabled && session.suggestions.length > 0 && (
+            {demoEnabled && session.suggestions.length > 0 && (
               <Badge tone="ai" size="sm">{session.suggestions.length}</Badge>
             )}
-            {aiEnabled && (
-              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                ~1.4s kechikish
-              </span>
-            )}
-            {/* AI toggle */}
-            <button
-              onClick={() => setAiEnabled((v) => !v)}
-              title={aiEnabled ? "AI yordamini o'chirish" : "AI yordamini yoqish"}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 10px',
-                borderRadius: 'var(--r-full)',
-                border: `1px solid ${aiEnabled ? 'var(--ai-glow)' : 'var(--border-default)'}`,
-                background: aiEnabled ? 'var(--ai-glow-soft)' : 'var(--surface-1)',
-                color: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)',
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 150ms ease',
-                letterSpacing: '0.02em',
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: aiEnabled ? 'var(--ai-glow)' : 'var(--text-muted)',
-                  transition: 'background 150ms ease',
-                }}
-              />
-              {aiEnabled ? 'Yoqilgan' : "O'chirilgan"}
-            </button>
           </div>
 
           <div style={{
@@ -398,53 +377,25 @@ export default function AgentDashboardPage() {
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
-            opacity: aiEnabled ? 1 : 0.4,
-            pointerEvents: aiEnabled ? 'auto' : 'none',
-            transition: 'opacity 200ms ease',
           }}>
-            {/* Customer selector — top of right panel, live mode only */}
-            {!demoEnabled && (
-              <>
-                <CustomerSelector
-                  clients={clients}
-                  selectedId={selectedClientId}
-                  onSelect={setSelectedClientId}
-                  disabled={pttStatus !== 'idle' && pttStatus !== 'ended'}
-                />
-                <div style={{ borderTop: '1px solid var(--border-subtle)', opacity: 0.5 }} />
-              </>
-            )}
-
-            {!aiEnabled ? (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                gap: 10,
-                color: 'var(--text-muted)',
-              }}>
-                <Icon name="sparkles" size={28} style={{ opacity: 0.3 }} />
-                <span style={{ fontSize: 13 }}>AI yordami o'chirilgan</span>
-              </div>
-            ) : session.suggestions.length === 0 ? (
-              <SuggestionCard variant="empty" />
+            {demoEnabled ? (
+              /* Demo mode — show scripted suggestion bullets */
+              session.suggestions.length === 0 ? (
+                <SuggestionCard variant="empty" />
+              ) : (
+                session.suggestions.map((sg) => (
+                  <SuggestionCard
+                    key={sg.id}
+                    variant="settled"
+                    trigger={sg.trigger}
+                    bullets={sg.bullets}
+                    age={session.callTime - sg.arrivedAt}
+                    onCopy={handleCopy}
+                  />
+                ))
+              )
             ) : (
-              session.suggestions.map((sg) => (
-                <SuggestionCard
-                  key={sg.id}
-                  variant="settled"
-                  trigger={sg.trigger}
-                  bullets={sg.bullets}
-                  age={session.callTime - sg.arrivedAt}
-                  onCopy={handleCopy}
-                />
-              ))
-            )}
-
-            {/* Sales recommendations — bottom of right panel, live mode only */}
-            {!demoEnabled && (
+              /* Live PTT mode — only sales recommendations */
               <SalesRecommendationPanel
                 clientId={selectedClientId}
                 disabled={pttStatus === 'idle'}

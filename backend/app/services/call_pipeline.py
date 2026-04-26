@@ -271,112 +271,34 @@ async def process_audio_chunk(
     client_facts = sales_ctx["client_facts"]
     rag_context = sales_ctx["doc_context"]
 
-    # ── LLM #1: Sales recommendation (debounced 30 s) ───────────────────────
-    _RECOMMENDATION_DEBOUNCE_S = 30.0
-    if state and client_profile is not None:
-        now = time.monotonic()
-        last_rec_ts = state.get("last_recommendation_ts", 0.0)
-        if now - last_rec_ts >= _RECOMMENDATION_DEBOUNCE_S:
-            state["last_recommendation_ts"] = now
-            asyncio.create_task(
-                _bg_recommendation(
-                    call_id, client_facts, sales_ctx["pitches"], rag_context, text
-                )
-            )
-
-    # ── LLM #2: Live script (per objection OR per 3 turns) ───────────────────
-    _LIVE_SCRIPT_TURNS_INTERVAL = 3
-    should_emit_live_script = objection_match is not None or (
-        state and state.get("turns_since_live_script", 0) >= _LIVE_SCRIPT_TURNS_INTERVAL
-    )
-    if should_emit_live_script:
-        if state:
-            state["turns_since_live_script"] = 0
-        last_3 = state["transcripts"][-3:] if state else []
-        asyncio.create_task(
-            _bg_live_script(
-                call_id,
-                client_facts,
-                rag_context,
-                last_3,
-                trigger_label if objection_match else "",
-            )
-        )
-
-    # ── Standard LLM suggestion (existing suggestion card) ──────────────────
     client_facts_header = (
         f"Mijoz ma'lumotlari:\n{client_facts}\n\n" if client_facts else ""
     )
-    suggestion_tokens: list[str] = []
+
+    # ── AI agent answer (always synchronous — REST needs it in the response) ──
+    import uuid
+    import time as _time
+
+    msg_id = uuid.uuid4().hex
+    answer_tokens: list[str] = []
     try:
-        async for token in llm_service.get_suggestion(
+        async for tok in llm_service.get_agent_answer(
             customer_text=text,
             rag_context=rag_context,
             client_facts=client_facts_header,
         ):
-            suggestion_tokens.append(token)
+            answer_tokens.append(tok)
     except Exception as e:
-        log.error("llm.error", error=str(e), call_id=call_id)
-        events.append(
-            _make_event("error", call_id=call_id, code="LLM_TIMEOUT", message=str(e))
-        )
-        return events
-
-    if suggestion_tokens:
-        full = "".join(suggestion_tokens)
-        bullets = [b.strip() for b in full.split("\n") if b.strip()][:3]
-        latency_ms = int((time.monotonic() - t_start) * 1000)
-        log.info("suggestion_emitted", call_id=call_id, latency_ms=latency_ms)
-        suggestion_event = _make_event(
-            "suggestion", call_id=call_id, text=bullets, trigger=trigger_label
-        )
-        events.append(suggestion_event)
-        if state:
-            state["suggestion_count"] = state.get("suggestion_count", 0) + 1
-        try:
-            async with AsyncSessionLocal() as db:
-                row = SuggestionLog(
-                    call_id=call_id,
-                    trigger=trigger_label,
-                    suggestion="\n".join(bullets),
-                    latency_ms=latency_ms,
-                )
-                db.add(row)
-                await db.commit()
-        except Exception as e:
-            log.warning("suggestion_log.error", error=str(e))
-
-    # ── AI agent answer ──────────────────────────────────────────────────────
-    if state is not None:
-        # WebRTC path: fire answer in background, tokens stream via DataChannel
-        asyncio.create_task(
-            _bg_ai_answer(call_id, text, client_facts_header, rag_context)
-        )
-    else:
-        # REST fallback: collect answer synchronously and append to events
-        import uuid
-        import time as _time
-
-        msg_id = uuid.uuid4().hex
-        answer_tokens: list[str] = []
-        try:
-            async for tok in llm_service.get_agent_answer(
-                customer_text=text,
-                rag_context=rag_context,
-                client_facts=client_facts_header,
-            ):
-                answer_tokens.append(tok)
-        except Exception as e:
-            log.error("ai_answer.rest_error", error=str(e), call_id=call_id)
-        if answer_tokens:
-            events.append(_make_event(
-                "ai_answer",
-                call_id=call_id,
-                message_id=msg_id,
-                text="".join(answer_tokens),
-                done=True,
-                ts=_time.time(),
-            ))
+        log.error("ai_answer.error", error=str(e), call_id=call_id)
+    if answer_tokens:
+        events.append(_make_event(
+            "ai_answer",
+            call_id=call_id,
+            message_id=msg_id,
+            text="".join(answer_tokens),
+            done=True,
+            ts=_time.time(),
+        ))
 
     return events
 
