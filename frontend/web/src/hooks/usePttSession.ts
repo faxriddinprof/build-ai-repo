@@ -79,17 +79,25 @@ export function usePttSession() {
       case 'compliance_tick':
         dispatch({ type: 'COMPLIANCE_TICK', phraseId: String(ev.phrase_id ?? ev.phraseId ?? '') })
         break
-      case 'summary_ready':
+      case 'summary_ready': {
         stopTick()
+        // Backend nests all fields under ev.summary; fall back to top-level for compatibility
+        const s = (ev.summary ?? ev) as Record<string, unknown>
         dispatch({
           type: 'SUMMARY_READY',
           summary: {
-            outcome: ev.outcome as string | undefined,
-            objections: ev.objections as string[] | undefined,
-            nextAction: ev.next_action as string | undefined,
+            outcome: (s.outcome ?? s.natija) as string | undefined,
+            objections: (s.objections ?? s.etirozlar) as string[] | undefined,
+            nextAction: (s.next_action ?? s.keyingiQadam) as string | undefined,
+            natija: s.natija as string | undefined,
+            etirozlar: s.etirozlar as string[] | undefined,
+            keyingiQadam: s.keyingiQadam as string | undefined,
+            complianceHolati: s.complianceHolati as { passed: number; total: number } | undefined,
+            sentiment: s.sentiment as string | undefined,
           },
         })
         break
+      }
       case 'error':
         dispatch({ type: 'ERROR', message: String(ev.message ?? 'Unknown error') })
         break

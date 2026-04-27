@@ -7,11 +7,11 @@ export default defineConfig({
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://172.20.10.9:8765',
+        target: 'http://192.168.11.157:8765',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'http://172.20.10.9:8765',
+        target: 'http://192.168.11.157:8765',
         ws: true,
         changeOrigin: true,
       },
